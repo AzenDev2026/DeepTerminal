@@ -1,4 +1,4 @@
-# DeepTerminal (beta)
+# DeepTerminal (beta 1)
 DeepTermianl is a terminal for linux,it uses the powershell core 7.+ for logic processes  
 it is to replace the oringinal *wtml* whcch is Winzer Terminal in the AzenDev repository  
 <img width="2560" height="1600" alt="Screenshot_20261031_223047" src="https://github.com/user-attachments/assets/0e9c900c-17c8-49de-ac0f-a103c0482159" />
