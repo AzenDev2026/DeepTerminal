@@ -1,5 +1,5 @@
-# DeepTerminal
-
+# DeepTerminal  
+Lastes version: **rls 1**  
 DeepTerminal is a native Qt terminal for Linux. It runs PowerShell 7, Bash, or any
 shell on a **real pseudo-terminal**, with a wide xterm-compatible screen, tabs,
 scrollback, search, mouse support, IME input, and a small, hackable Python codebase.
