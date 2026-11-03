@@ -1,56 +1,85 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# DeepTerminal installer. Usage: ./install.sh [--uninstall]
+set -euo pipefail
 
-# 获取当前脚本所在的绝对路径（不管在哪运行都能找到）
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-VENV_DIR="$DIR/.venv"
-DESKTOP_DIR="$HOME/.local/share/applications"
-ICON_DIR="$HOME/.local/share/icons"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VENV="$DIR/.venv"
+DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
+ICON_DIR="$DATA_HOME/icons"
+DESKTOP_DIR="$DATA_HOME/applications"
+APP_ID="deepterminal"
 
-echo "==> Installing DeepTerminal beta..."
-
-# 1. 创建并激活虚拟环境
-if [ ! -d "$VENV_DIR" ]; then
-    echo "Creating virtual environment..."
-    python3 -m venv "$VENV_DIR"
+if [[ "${1:-}" == "--uninstall" ]]; then
+    rm -f "$DESKTOP_DIR/$APP_ID.desktop" "$ICON_DIR/$APP_ID.png"
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+    echo "Removed the DeepTerminal launcher and icon."
+    echo "The checkout and $VENV were left in place; delete them manually if you want."
+    exit 0
 fi
 
-echo "Installing dependencies..."
-source "$VENV_DIR/bin/activate"
-pip install --upgrade pip
-pip install -r "$DIR/requirements.txt"
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+    sed -n '2,3p' "$0"
+    exit 0
+fi
 
-# 2. 处理图标
-mkdir -p "$ICON_DIR"
-# 如果仓库里有 deepterm.png，则复制过去。没有就生成个占位符防止报错。
-if [ -f "$DIR/deepterm.png" ]; then
-    cp "$DIR/deepterm.png" "$ICON_DIR/deepterminal.png"
+export PIP_DISABLE_PIP_VERSION_CHECK=1
+
+echo "==> DeepTerminal installer"
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "error: python3 is required." >&2
+    exit 1
+fi
+if ! python3 -c 'import venv' >/dev/null 2>&1; then
+    echo "error: python3-venv is required (on Arch: pacman -S python; on Debian: apt install python3-venv)." >&2
+    exit 1
+fi
+
+echo "==> Python environment"
+if [[ ! -d "$VENV" ]]; then
+    python3 -m venv "$VENV"
+fi
+"$VENV/bin/python" -m pip install --upgrade pip >/dev/null
+"$VENV/bin/python" -m pip install -r "$DIR/requirements.txt"
+
+echo "==> Desktop integration"
+mkdir -p "$ICON_DIR" "$DESKTOP_DIR"
+if [[ -f "$DIR/deepterm.png" ]]; then
+    cp "$DIR/deepterm.png" "$ICON_DIR/$APP_ID.png"
 else
-    echo "Warning: deepterm.png not found. Using default icon."
-    # 创建一个空白图标防止报错
-    touch "$ICON_DIR/deepterminal.png"
+    echo "warning: deepterm.png not found; the launcher will use a generic icon." >&2
 fi
 
-# 3. 生成 .desktop 文件
-mkdir -p "$DESKTOP_DIR"
-DESKTOP_FILE="$DESKTOP_DIR/deepterminal.desktop"
-
-cat > "$DESKTOP_FILE" << EOF
+cat > "$DESKTOP_DIR/$APP_ID.desktop" <<EOF
 [Desktop Entry]
-Version=1.0
+Version=1.1
 Type=Application
-Name=DeepTerminal beta
-Comment=A modern terminal frontend for PowerShell
-Exec=$VENV_DIR/bin/python $DIR/deepter.py
+Name=DeepTerminal
+GenericName=Terminal
+Comment=Native terminal for PowerShell 7, Bash and any shell
+Exec="$VENV/bin/python" "$DIR/deepter.py"
 Path=$DIR
-Icon=$ICON_DIR/deepterminal.png
+Icon=$ICON_DIR/$APP_ID.png
 Terminal=false
 Categories=System;TerminalEmulator;
+Keywords=terminal;shell;console;pwsh;bash;pty;
 StartupNotify=true
+StartupWMClass=DeepTerminal
 EOF
-
-chmod +x "$DESKTOP_FILE"
+chmod +x "$DESKTOP_DIR/$APP_ID.desktop"
 update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f "$ICON_DIR" 2>/dev/null || true
+fi
 
-echo "==> Installation complete!"
-echo "You can now launch 'DeepTerminal beta' from your application menu."
-echo "Or run this directly: $VENV_DIR/bin/python $DIR/deepter.py"
+echo "==> Checking shells"
+for shell in pwsh bash; do
+    if command -v "$shell" >/dev/null 2>&1; then
+        printf '    %-5s %s\n' "$shell" "$(command -v "$shell")"
+    else
+        printf '    %-5s not found (select another shell in Settings)\n' "$shell"
+    fi
+done
+
+echo "==> Done."
+echo "    Launch 'DeepTerminal' from the application menu, or run:"
+echo "    $VENV/bin/python $DIR/deepter.py"
