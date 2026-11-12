@@ -20,8 +20,10 @@ from PyQt6.QtCore import QEvent, QSettings, Qt  # noqa: E402
 from PyQt6.QtGui import QGuiApplication, QInputMethodEvent, QKeyEvent  # noqa: E402
 from PyQt6.QtWidgets import QApplication, QTabBar  # noqa: E402
 
+from deepterminal import promptstyle  # noqa: E402
 from deepterminal.config import Config  # noqa: E402
 from deepterminal.emulator import make_emulator  # noqa: E402
+from deepterminal.settings_dialog import SettingsDialog  # noqa: E402
 from deepterminal.shells import ShellError, bash_profile, resolve_profile  # noqa: E402
 from deepterminal.window import MainWindow  # noqa: E402
 from deepterminal.view import TerminalView, encode_key  # noqa: E402
@@ -105,6 +107,43 @@ def test_key_encoding() -> None:
     )
 
 
+def test_prompt_style() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        config = Config(QSettings(str(Path(directory) / "settings.ini"), QSettings.Format.IniFormat))
+        config.set("prompt_style", "arrow")
+        ps1 = promptstyle.bash_ps1(config)
+        check("bash PS1 carries a truecolour SGR", "38;2;" in ps1, repr(ps1))
+        check("bash PS1 wraps non-printing sequences", r"\[" in ps1 and r"\]" in ps1, repr(ps1))
+        check("bash PS1 shows the cwd", r"\w" in ps1, repr(ps1))
+        check("bash PS1 shows the arrow symbol", "❯" in ps1, repr(ps1))
+        fn = promptstyle.pwsh_prompt_function(config)
+        check("pwsh prompt is a function", fn is not None and fn.startswith("function prompt {"), str(fn))
+        check("pwsh prompt shows the cwd", "$(Get-Location)" in fn, str(fn))
+        check("pwsh prompt uses backtick-e escapes", "`e[38;2" in fn, str(fn))
+
+        config.set("prompt_style", "powerline")
+        ps1 = promptstyle.bash_ps1(config)
+        check("powerline PS1 has a background colour", "48;2;" in ps1, repr(ps1))
+        check("powerline PS1 shows the host", r"\u@\h" in ps1, repr(ps1))
+
+        config.set("prompt_style", "custom")
+        config.set("prompt", "DT ({path})::: ")
+        ps1 = promptstyle.bash_ps1(config)
+        check("custom format keeps legacy behaviour", "DT (" in ps1 and r"\w" in ps1, repr(ps1))
+
+        config.set("prompt_style", "none")
+        check(
+            "shell default means no override",
+            promptstyle.bash_ps1(config) == "" and promptstyle.pwsh_prompt_function(config) is None,
+        )
+        check("prompt command is None without a style", promptstyle.bash_prompt_command(config) is None)
+
+        html = promptstyle.preview_html("arrow")
+        check("preview shows colours and symbol", "color:" in html and "❯" in html, html)
+        html = promptstyle.preview_html("powerline")
+        check("powerline preview shows segments", "background:" in html and "⚡" in html, html)
+
+
 def test_pty(app: QApplication) -> None:
     if not Path("/bin/bash").exists():
         check("bash available", False, "bash is required for this test")
@@ -115,13 +154,21 @@ def test_pty(app: QApplication) -> None:
         config.set("theme", "dark")
         config.set("font_size", 10)
         config.set("scrollback", 2000)
+        config.set("startup_cmd", "echo start-cmd-ran")
         config.sync()
 
-        view = TerminalView(config, bash_profile("DT ({path})::: "))
+        view = TerminalView(config, bash_profile(config))
         view.resize(900, 560)
         view.show()
 
-        check("shell prompt appears", wait_until(app, lambda: "DT (" in view.screen_text(), 10), view.screen_text())
+        check("styled shell prompt appears", wait_until(app, lambda: "❯" in view.screen_text(), 10), view.screen_text())
+        check("prompt setup is not echoed", "PS1=" not in view.screen_text(), view.screen_text())
+        check("startup command runs", wait_until(app, lambda: "start-cmd-ran" in view.screen_text(), 8), view.screen_text())
+        check(
+            "startup command is echoed",
+            view.screen_text().count("start-cmd-ran") >= 2,
+            view.screen_text(),
+        )
         view._write_input(b"printf 'smoke-ok\\n'\r")
         check("command output appears", wait_until(app, lambda: "smoke-ok" in view.screen_text()), view.screen_text())
         view._write_input(b"if [ -t 1 ]; then echo tty-yes; else echo tty-no; fi\r")
@@ -180,10 +227,10 @@ def test_view_extras(app: QApplication) -> None:
         config.set("font_size", 10)
         config.set("scrollback", 5000)
         config.sync()
-        view = TerminalView(config, bash_profile("DT ({path})::: "))
+        view = TerminalView(config, bash_profile(config))
         view.resize(900, 560)
         view.show()
-        check("view starts a shell", wait_until(app, lambda: "DT (" in view.screen_text(), 10), view.screen_text())
+        check("view starts a shell", wait_until(app, lambda: "❯" in view.screen_text(), 10), view.screen_text())
 
         ime = QInputMethodEvent("", [])
         ime.setCommitString("echo ime-ok\r")
@@ -296,10 +343,25 @@ def test_window(app: QApplication) -> None:
         check("new tab is added", window.tabs.count() == 2, str(window.tabs.count()))
         button = window.tabs.tabBar().tabButton(1, QTabBar.ButtonPosition.RightSide)
         check("tab has a close button", button is not None)
+        check("active tab shows its close button", button is not None and button.isVisible())
+        hidden = window.tabs.tabBar().tabButton(0, QTabBar.ButtonPosition.RightSide)
+        check("inactive tab hides its close button", hidden is not None and not hidden.isVisible())
+        check(
+            "new tab corner button exists",
+            window.tabs.cornerWidget(Qt.Corner.TopRightCorner) is not None,
+        )
         if button is not None:
             button.click()
             app.processEvents()
         check("close button closes the tab", window.tabs.count() == 1, str(window.tabs.count()))
+
+        dialog = SettingsDialog(config)
+        values = dialog.values()
+        check("settings expose the prompt style", values["prompt_style"] == "arrow", str(values["prompt_style"]))
+        check("settings keep the legacy prompt format", values["prompt"] == "DT ({path})::: ", str(values["prompt"]))
+        dialog.close()
+        app.processEvents()
+
         window.close()
         app.processEvents()
 
@@ -308,6 +370,7 @@ def main() -> int:
     app = QApplication(sys.argv[:1])
     test_emulator()
     test_key_encoding()
+    test_prompt_style()
     test_pty(app)
     test_view_extras(app)
     test_window(app)

@@ -24,13 +24,23 @@ class PtyProcess(QObject):
     output = pyqtSignal(bytes)
     exited = pyqtSignal(int)
 
-    def __init__(self, argv: tuple[str, ...], cwd: str, env: dict[str, str], rows: int, columns: int, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        argv: tuple[str, ...],
+        cwd: str,
+        env: dict[str, str],
+        rows: int,
+        columns: int,
+        parent: QObject | None = None,
+        echo_off: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.argv = tuple(argv)
         self.cwd = cwd
         self.env = dict(env)
         self.rows = max(1, rows)
         self.columns = max(1, columns)
+        self.echo_off = echo_off
         self.pid: int | None = None
         self._fd: int | None = None
         self._lock = threading.Lock()
@@ -46,6 +56,12 @@ class PtyProcess(QObject):
         pid, fd = pty.fork()
         if pid == 0:  # pragma: no cover - executed in the child process
             try:
+                if self.echo_off:
+                    # Start with input echo disabled so the prompt setup we
+                    # inject right after startup is not echoed to the screen.
+                    attributes = termios.tcgetattr(0)
+                    attributes[3] &= ~termios.ECHO
+                    termios.tcsetattr(0, termios.TCSANOW, attributes)
                 os.chdir(self.cwd)
                 os.execvpe(self.argv[0], list(self.argv), self.env)
             except BaseException as error:

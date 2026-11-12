@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSettings
 ORG = "AzenDev"
 APP = "DeepTerminal"
 APP_NAME = "DeepTerminal"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 
 #: Selectable default shells. "custom" means the command in ``custom_shell``.
 SHELL_CHOICES = ("pwsh", "bash", "custom")
@@ -28,6 +28,13 @@ DEFAULTS: dict[str, object] = {
     "scrollback": 5000,
     "cursor_blink": True,
     "working_dir": "",
+    # New in 2.1: styled prompts (see promptstyle.py). ``prompt`` keeps its
+    # beta meaning and is only used when prompt_style is "custom".
+    "prompt_style": "arrow",
+    "prompt_symbol": "",
+    "prompt_symbol_color": "",
+    "prompt_path_color": "",
+    "prompt_user_host": False,
 }
 
 #: Terminal palettes. Colours map the 16 ANSI names pyte produces; values are

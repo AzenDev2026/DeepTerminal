@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
-    QPushButton,
     QTabBar,
     QTabWidget,
     QToolButton,
@@ -37,6 +36,7 @@ class MainWindow(QMainWindow):
         self.default_shell = shell_key or self.config.get_str("shell")
         self._find_dialog: FindDialog | None = None
         self._renamed_tabs: set[TerminalView] = set()
+        self._hover_tab: int = -1
 
         self.setWindowTitle(APP_NAME)
         self.resize(1080, 700)
@@ -58,7 +58,8 @@ class MainWindow(QMainWindow):
         self.tabs.setTabsClosable(False)
         self.tabs.setMovable(True)
         self.tabs.setDocumentMode(True)
-        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
+        self.tabs.setUsesScrollButtons(True)
+        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideMiddle)
         self.tabs.tabCloseRequested.connect(self.close_tab)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         self.tabs.tabBar().installEventFilter(self)
@@ -66,16 +67,17 @@ class MainWindow(QMainWindow):
         self.tabs.tabBar().customContextMenuRequested.connect(self._tab_menu)
         self.setCentralWidget(self.tabs)
 
-        settings_button = QPushButton("⚙")
-        settings_button.setObjectName("settingsButton")
-        settings_button.setFixedSize(30, 30)
+        settings_button = QToolButton()
+        settings_button.setObjectName("tabTool")
+        settings_button.setText("⚙")
         settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_button.setToolTip("Settings")
+        settings_button.setToolTip("Settings (Ctrl+,)")
         settings_button.clicked.connect(self.open_settings)
         self.tabs.setCornerWidget(settings_button, Qt.Corner.TopLeftCorner)
 
         self.new_button = QToolButton()
-        self.new_button.setText("＋  New Tab")
+        self.new_button.setObjectName("tabPlus")
+        self.new_button.setText("＋")
         self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.new_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.new_button.setToolTip("New tab (Ctrl+Shift+T)")
@@ -83,7 +85,9 @@ class MainWindow(QMainWindow):
         self.tabs.setCornerWidget(self.new_button, Qt.Corner.TopRightCorner)
 
         self.status_label = QLabel("")
+        self.status_label.setObjectName("statusLabel")
         self.statusBar().addWidget(self.status_label)
+        self.statusBar().setSizeGripEnabled(False)
 
     def _build_new_menu(self) -> QMenu:
         menu = QMenu(self)
@@ -101,41 +105,61 @@ class MainWindow(QMainWindow):
             f"""
             QMainWindow {{ background: {theme['window_bg']}; }}
             QTabWidget::pane {{ border: none; background: {theme['bg']}; }}
+            QTabBar {{ background: {theme['window_bg']}; }}
             QTabBar::tab {{
-                background: {theme['tab_bg']};
+                background: transparent;
                 color: {theme['tab_fg']};
-                padding: 8px 26px;
-                border-right: 1px solid {theme['border']};
-                border-radius: 0;
+                padding: 7px 8px 7px 14px;
+                border: none;
+                border-bottom: 2px solid transparent;
+                min-width: 90px;
             }}
-            QTabBar::tab:selected {{ background: {theme['tab_active_bg']}; color: {theme['tab_active_fg']}; }}
-            QTabBar::tab:hover:!selected {{ background: {theme['border']}; color: {theme['tab_active_fg']}; }}
+            QTabBar::tab:selected {{
+                color: {theme['tab_active_fg']};
+                background: {theme['bg']};
+                border-bottom: 2px solid {theme['accent']};
+            }}
+            QTabBar::tab:hover:!selected {{ background: {theme['border']}; }}
             QToolButton#tabClose {{
                 background: transparent;
                 color: {theme['tab_fg']};
                 border: none;
+                border-radius: 4px;
                 padding: 0;
                 font-weight: 600;
             }}
             QToolButton#tabClose:hover {{
                 background: {theme['border']};
                 color: {theme['tab_active_fg']};
-                border-radius: 4px;
             }}
-            QPushButton#settingsButton, QToolButton {{
+            QToolButton#tabTool, QToolButton#tabPlus {{
                 background: transparent;
                 color: {theme['tab_fg']};
                 border: none;
-                padding: 6px 12px;
+                border-radius: 6px;
+                padding: 0 10px;
                 font-weight: 600;
             }}
-            QToolButton:hover, QPushButton#settingsButton:hover {{
+            QToolButton#tabTool:hover, QToolButton#tabPlus:hover {{
                 background: {theme['border']};
                 color: {theme['tab_active_fg']};
             }}
-            QStatusBar {{ background: {theme['window_bg']}; color: {theme['tab_fg']}; border-top: 1px solid {theme['border']}; }}
-            QMenu {{ background: {theme['window_bg']}; color: {theme['fg']}; border: 1px solid {theme['border']}; }}
+            QStatusBar {{
+                background: {theme['window_bg']};
+                color: {theme['tab_fg']};
+                border-top: 1px solid {theme['border']};
+            }}
+            QStatusBar::item {{ border: none; }}
+            QMenu {{
+                background: {theme['window_bg']};
+                color: {theme['fg']};
+                border: 1px solid {theme['border']};
+                border-radius: 8px;
+                padding: 4px;
+            }}
+            QMenu::item {{ padding: 6px 24px 6px 12px; border-radius: 6px; }}
             QMenu::item:selected {{ background: {theme['accent']}; color: #ffffff; }}
+            QMenu::separator {{ height: 1px; background: {theme['border']}; margin: 4px 8px; }}
             """
         )
 
@@ -172,13 +196,24 @@ class MainWindow(QMainWindow):
         button = QToolButton()
         button.setObjectName("tabClose")
         button.setText("✕")
-        button.setFixedSize(18, 18)
+        button.setFixedSize(16, 16)
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setCursor(Qt.CursorShape.ArrowCursor)
-        button.setToolTip("Close tab")
+        button.setToolTip("Close tab (middle-click also works)")
         button.clicked.connect(lambda _checked=False, widget=view: self.close_tab(self.tabs.indexOf(widget)))
         index = self.tabs.indexOf(view)
         self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
+        self._refresh_close_buttons()
+
+    def _refresh_close_buttons(self) -> None:
+        """Show the close button on the active tab and the hovered tab."""
+        bar = self.tabs.tabBar()
+        current = self.tabs.currentIndex()
+        for index in range(self.tabs.count()):
+            button = bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
+            if button is None:
+                continue
+            button.setVisible(index == current or index == self._hover_tab)
 
     def close_tab(self, index: int) -> None:
         view = self.tabs.widget(index)
@@ -251,6 +286,7 @@ class MainWindow(QMainWindow):
         view = self.tabs.widget(index)
         if isinstance(view, TerminalView):
             view.setFocus()
+        self._refresh_close_buttons()
         self._update_window_title()
         self._update_status()
 
@@ -273,11 +309,27 @@ class MainWindow(QMainWindow):
 
     # -- events ----------------------------------------------------------
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt naming
-        if obj is self.tabs.tabBar() and event.type() == QEvent.Type.MouseButtonDblClick:
-            index = self.tabs.tabBar().tabAt(event.position().toPoint())
-            if index != -1:
-                self._rename_tab(index)
-                return True
+        if obj is self.tabs.tabBar():
+            event_type = event.type()
+            if event_type == QEvent.Type.MouseMove:
+                index = self.tabs.tabBar().tabAt(event.position().toPoint())
+                if index != self._hover_tab:
+                    self._hover_tab = index
+                    self._refresh_close_buttons()
+            elif event_type == QEvent.Type.Leave:
+                if self._hover_tab != -1:
+                    self._hover_tab = -1
+                    self._refresh_close_buttons()
+            elif event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
+                index = self.tabs.tabBar().tabAt(event.position().toPoint())
+                if index >= 0:
+                    self.close_tab(index)
+                    return True
+            elif event_type == QEvent.Type.MouseButtonDblClick:
+                index = self.tabs.tabBar().tabAt(event.position().toPoint())
+                if index != -1:
+                    self._rename_tab(index)
+                    return True
         return super().eventFilter(obj, event)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
@@ -344,6 +396,8 @@ class MainWindow(QMainWindow):
             f"Kernel {platform.release()}<br><br>"
             f"pty: real pseudo-terminal · {self.tabs.count()} session(s)<br>"
             "Shortcuts: Ctrl+Shift+T new tab, Ctrl+W close, Ctrl+Tab switch, "
-            "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, F11 fullscreen."
+            "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, F11 fullscreen.<br>"
+            "Tips: middle-click a tab to close it, double-click to rename it, "
+            "and style the prompt in Settings → Prompt."
         )
         QMessageBox.about(self, f"About {APP_NAME}", text)

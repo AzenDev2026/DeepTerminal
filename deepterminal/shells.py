@@ -8,6 +8,7 @@ import shutil
 from dataclasses import dataclass
 
 from .config import APP_VERSION, Config
+from .promptstyle import bash_prompt_command, pwsh_prompt_function
 
 
 class ShellError(Exception):
@@ -23,43 +24,27 @@ class ShellProfile:
     argv: tuple[str, ...]
     #: Text written to the shell right after it starts (bash prompt setup).
     prompt_command: str | None = None
+    #: Start the PTY with input echo disabled; prompt_command turns it back
+    #: on, so the injected setup is never echoed to the screen.
+    echo_off: bool = False
 
     def title(self) -> str:
         return self.label
 
 
-def _ps_quote(text: str) -> str:
-    return "'" + text.replace("'", "''") + "'"
-
-
-def _sh_quote(text: str) -> str:
-    return "'" + text.replace("'", "'\\''") + "'"
-
-
-def pwsh_prompt_function(fmt: str) -> str:
-    """Build a PowerShell ``prompt`` function for ``fmt`` (``{path}`` = cwd)."""
-    before, marker, after = fmt.partition("{path}")
-    if marker == "":
-        body = _ps_quote(fmt)
-    else:
-        body = f"{_ps_quote(before)} + $(Get-Location) + {_ps_quote(after)}"
-    return f"function prompt {{ {body} }}"
-
-
-def pwsh_profile(prompt_format: str) -> ShellProfile:
+def pwsh_profile(config: Config) -> ShellProfile:
     executable = shutil.which("pwsh")
     if executable is None:
         raise ShellError(
             "PowerShell 7 (pwsh) was not found on PATH. Install it or pick another shell in Settings."
         )
-    argv: tuple[str, ...]
-    fmt = prompt_format if prompt_format.strip() != "" else ""
-    if fmt == "":
-        argv = (executable, "-NoLogo")
+    prompt_function = pwsh_prompt_function(config)
+    if prompt_function is None:
+        argv: tuple[str, ...] = (executable, "-NoLogo")
     else:
         init = "; ".join(
             [
-                pwsh_prompt_function(fmt),
+                prompt_function,
                 "$env:PAGER = 'cat'",
                 "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
                 "$OutputEncoding = [System.Text.Encoding]::UTF8",
@@ -69,15 +54,21 @@ def pwsh_profile(prompt_format: str) -> ShellProfile:
     return ShellProfile(key="pwsh", label="PowerShell 7", argv=argv)
 
 
-def bash_profile(prompt_format: str) -> ShellProfile:
+def bash_profile(config: Config) -> ShellProfile:
     executable = shutil.which("bash")
     if executable is None:
         raise ShellError("bash was not found on PATH. Install it or pick another shell in Settings.")
-    prompt_command = None
-    if prompt_format.strip() != "":
-        value = prompt_format.replace("{path}", r"\w")
-        prompt_command = f"PS1={_sh_quote(value)}\n"
-    return ShellProfile(key="bash", label="Bash", argv=(executable, "-i"), prompt_command=prompt_command)
+    prompt_command = bash_prompt_command(config)
+    if prompt_command is not None:
+        # Input echo stays off until this runs, so the PS1 setup never shows.
+        prompt_command += "stty echo\n"
+    return ShellProfile(
+        key="bash",
+        label="Bash",
+        argv=(executable, "-i"),
+        prompt_command=prompt_command,
+        echo_off=prompt_command is not None,
+    )
 
 
 def custom_profile(command: str) -> ShellProfile:
@@ -100,12 +91,11 @@ def custom_profile(command: str) -> ShellProfile:
 def resolve_profile(config: Config, shell_key: str | None = None) -> ShellProfile:
     """Resolve the configured (or explicitly requested) shell profile."""
     key = (shell_key or config.get_str("shell")).strip().lower()
-    prompt = config.get_str("prompt")
     if key == "bash":
-        return bash_profile(prompt)
+        return bash_profile(config)
     if key == "custom":
         return custom_profile(config.get_str("custom_shell"))
-    return pwsh_profile(prompt)
+    return pwsh_profile(config)
 
 
 def shell_choices() -> list[tuple[str, str, str]]:

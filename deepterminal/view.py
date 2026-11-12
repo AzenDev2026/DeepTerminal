@@ -25,8 +25,8 @@ from .emulator import TerminalScreen, make_emulator
 from .ptyproc import PtyProcess
 from .shells import ShellProfile, build_environment
 
-PAD_X = 6
-PAD_Y = 6
+PAD_X = 8
+PAD_Y = 8
 SCROLLBAR_WIDTH = 10
 REPAINT_MS = 8
 BLINK_MS = 530
@@ -229,6 +229,7 @@ class TerminalView(QWidget):
                 self.emulator.lines,
                 self.emulator.columns,
                 self,
+                echo_off=self.profile.echo_off,
             )
         except Exception as error:  # pragma: no cover - defensive
             self._show_error(str(error))
@@ -246,9 +247,19 @@ class TerminalView(QWidget):
             pty.write(self.profile.prompt_command.encode("utf-8"))
         startup = self.config.get_str("startup_cmd")
         if startup.strip() != "":
-            pty.write(startup.encode("utf-8") + b"\r")
+            # Wait until the shell is up (and echo is restored) so the
+            # startup command is echoed and executed like a typed line.
+            self._startup_timer = QTimer(self)
+            self._startup_timer.setSingleShot(True)
+            self._startup_timer.setInterval(150)
+            self._startup_timer.timeout.connect(lambda command=startup: self._run_startup(command))
+            self._startup_timer.start()
         self._blink_timer.start()
         self.setFocus()
+
+    def _run_startup(self, command: str) -> None:
+        if self.pty is not None and not self._exited:
+            self.pty.write(command.encode("utf-8") + b"\r")
 
     def _working_directory(self) -> str:
         path = self.config.working_dir()
@@ -276,6 +287,9 @@ class TerminalView(QWidget):
         self._blink_timer.stop()
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
+        startup_timer = getattr(self, "_startup_timer", None)
+        if startup_timer is not None:
+            startup_timer.stop()
         if self.pty is not None:
             try:
                 self.pty.output.disconnect(self._on_output)
