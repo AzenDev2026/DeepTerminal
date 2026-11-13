@@ -91,6 +91,19 @@ def test_emulator() -> None:
     screen.reset_mode(1, private=True)
     check("modes reset", screen.mouse_mode == 0 and not screen.bracketed_paste and not screen.app_cursor)
 
+    def document_text() -> str:
+        parts = ["".join(cell.data for cell in line.values()) for line in list(screen.history.top)]
+        parts.extend(screen.text_of_row(row) for row in range(screen.lines))
+        return "".join(ch for ch in "".join(parts) if not ch.isspace())
+
+    screen, stream = make_emulator(20, 4, 100)
+    stream.feed(b"hello world this is a long line of text\r\nsecond line with more words here\r\n")
+    before = document_text()
+    screen.resize(4, 8)
+    check("resize reflows without losing text", document_text() == before, document_text())
+    screen.resize(4, 14)
+    check("growing re-joins wrapped lines", document_text() == before, document_text())
+
 
 def test_key_encoding() -> None:
     check("arrow (normal)", encode_key(key_event(Qt.Key.Key_Up), False) == b"\x1b[A")
@@ -141,7 +154,7 @@ def test_prompt_style() -> None:
         html = promptstyle.preview_html("arrow")
         check("preview shows colours and symbol", "color:" in html and "❯" in html, html)
         html = promptstyle.preview_html("powerline")
-        check("powerline preview shows segments", "background:" in html and "⚡" in html, html)
+        check("powerline preview shows segments", "background:" in html and "❯" in html, html)
 
 
 def test_pty(app: QApplication) -> None:

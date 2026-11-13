@@ -16,6 +16,7 @@ from PyQt6.QtGui import (
     QGuiApplication,
     QKeyEvent,
     QPainter,
+    QPainterPath,
     QPen,
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QScrollBar, QWidget
@@ -31,6 +32,9 @@ SCROLLBAR_WIDTH = 10
 REPAINT_MS = 8
 BLINK_MS = 530
 WHEEL_LINES = 3
+CORNER_RADIUS = 10.0
+AUTO_CLEAR_MS = 300
+PROMPT_INJECT_DELAY_MS = 50
 
 _CTRL = Qt.KeyboardModifier.ControlModifier
 _SHIFT = Qt.KeyboardModifier.ShiftModifier
@@ -186,6 +190,7 @@ class TerminalView(QWidget):
         self._search_query = ""
         self._search_matches: list[tuple[int, int, int]] = []
         self._search_index = -1
+        self._shell_ready = False
 
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
@@ -212,6 +217,11 @@ class TerminalView(QWidget):
         self._search_refresh_timer.setInterval(180)
         self._search_refresh_timer.timeout.connect(self._refresh_search)
 
+        self._clear_timer = QTimer(self)
+        self._clear_timer.setSingleShot(True)
+        self._clear_timer.setInterval(AUTO_CLEAR_MS)
+        self._clear_timer.timeout.connect(self._auto_clear)
+
         self.emulator.on_bell = self._on_bell
         self.emulator.on_reply = self._on_emulator_reply
 
@@ -221,6 +231,7 @@ class TerminalView(QWidget):
 
     # -- shell lifecycle -------------------------------------------------
     def _start_shell(self) -> None:
+        self._shell_ready = False
         try:
             pty = PtyProcess(
                 self.profile.argv,
@@ -244,7 +255,14 @@ class TerminalView(QWidget):
             self._pending_notice = ""
             self._message("\r\n" + notice + "\r\n")
         if self.profile.prompt_command:
-            pty.write(self.profile.prompt_command.encode("utf-8"))
+            # Wait a moment so the child process has disabled ECHO before the
+            # setup is written; writing immediately races the fork and can
+            # echo the raw "PS1=..." line onto the screen.
+            self._prompt_timer = QTimer(self)
+            self._prompt_timer.setSingleShot(True)
+            self._prompt_timer.setInterval(PROMPT_INJECT_DELAY_MS)
+            self._prompt_timer.timeout.connect(self._write_prompt)
+            self._prompt_timer.start()
         startup = self.config.get_str("startup_cmd")
         if startup.strip() != "":
             # Wait until the shell is up (and echo is restored) so the
@@ -260,6 +278,10 @@ class TerminalView(QWidget):
     def _run_startup(self, command: str) -> None:
         if self.pty is not None and not self._exited:
             self.pty.write(command.encode("utf-8") + b"\r")
+
+    def _write_prompt(self) -> None:
+        if self.pty is not None and not self._exited and self.profile.prompt_command:
+            self.pty.write(self.profile.prompt_command.encode("utf-8"))
 
     def _working_directory(self) -> str:
         path = self.config.working_dir()
@@ -287,9 +309,13 @@ class TerminalView(QWidget):
         self._blink_timer.stop()
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
+        self._clear_timer.stop()
         startup_timer = getattr(self, "_startup_timer", None)
         if startup_timer is not None:
             startup_timer.stop()
+        prompt_timer = getattr(self, "_prompt_timer", None)
+        if prompt_timer is not None:
+            prompt_timer.stop()
         if self.pty is not None:
             try:
                 self.pty.output.disconnect(self._on_output)
@@ -301,6 +327,7 @@ class TerminalView(QWidget):
 
     # -- process signals -------------------------------------------------
     def _on_output(self, data: bytes) -> None:
+        self._shell_ready = True
         try:
             self.stream.feed(data)
         except Exception:  # pragma: no cover - malformed sequences must not kill the tab
@@ -440,6 +467,7 @@ class TerminalView(QWidget):
         self.emulator.resize(lines, columns)
         if self.pty is not None:
             self.pty.resize(lines, columns)
+        self._schedule_auto_clear()
         self._scroll_offset = min(self._scroll_offset, self._max_offset())
         if self._search_query.strip() != "":
             index = self._search_index
@@ -448,6 +476,21 @@ class TerminalView(QWidget):
                 self._search_index = min(max(0, index), len(self._search_matches) - 1)
         self._sync_scrollbar()
         self.size_changed.emit()
+
+    def _schedule_auto_clear(self) -> None:
+        """After a resize settles, refresh the shell with a clear-screen.
+
+        Reflowing keeps every character, but the shell redraws its prompt on
+        SIGWINCH and can leave it stranded at the bottom of the screen. Sending
+        Ctrl+L (readline's clear-screen) repaints a fresh prompt at the top,
+        exactly like typing ``clear`` — without polluting shell history.
+        """
+        if self._shell_ready and not self._exited and not self.emulator.alt_screen:
+            self._clear_timer.start()
+
+    def _auto_clear(self) -> None:
+        if self._shell_ready and not self._exited and not self.emulator.alt_screen:
+            self._write_input(b"\x0c")
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._scrollbar.setGeometry(self.width() - SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, self.height())
@@ -511,6 +554,11 @@ class TerminalView(QWidget):
     def paintEvent(self, event) -> None:  # noqa: N802 - Qt naming
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if CORNER_RADIUS > 0:
+            clip = QPainterPath()
+            clip.addRoundedRect(QRectF(self.rect()), CORNER_RADIUS, CORNER_RADIUS)
+            painter.setClipPath(clip)
         painter.fillRect(self.rect(), self._bg_color)
 
         cell_w, cell_h = self._cell_w, self._cell_h

@@ -16,6 +16,9 @@ live preview in Settings → Prompt. The prompt is injected into Bash (`PS1`) an
 PowerShell (a `prompt` function) with truecolour SGR, and the setup line itself
 is never echoed to the screen.
 
+Version 2.5.1 reflows the screen and scrollback when the window is
+resized, so wrapped text re-wraps at the new width instead of being clipped.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features
@@ -28,11 +31,13 @@ is never echoed to the screen.
 - **Tabs**: per-tab shell, hover close buttons, middle-click to close,
   double-click to rename, restart, duplicate, drag to reorder.
   Tabs follow OSC 0/2 titles set by the shell (for example the current directory).
-- **Styled prompts**: presets with truecolour icons (❯ ➜ ⚡ 🐳), custom symbol,
+- **Styled prompts**: presets with truecolour icons (❯ ➜ 🐳), custom symbol,
   symbol/path colours, optional `username@host`, powerline segments, and a live
   preview in Settings. Applies to Bash and PowerShell; a plain `{path}` format
   string is still supported.
 - **Scrollback** (configurable, default 5000 lines), mouse wheel and scrollbar.
+- **Reflow on resize**: resizing the window re-wraps and re-joins wrapped lines
+  in both the screen and scrollback, so no text is clipped away.
 - **Search** across screen and scrollback (`Ctrl+Shift+F`) with highlight and
   next/previous navigation.
 - **Selection and clipboard**: drag selection, double-click word, select all,
@@ -140,8 +145,6 @@ blinking apply immediately.
 - Search is single-line and capped at 5000 matches.
 - Selection/search anchors can drift if new output arrives while you interact
   with scrollback; the viewport itself stays anchored.
-- Resizing does not reflow wrapped lines (pyte has no reflow); the terminal is
-  resized by adding/removing rows and columns like a classic xterm.
 - No split panes or session restore.
 - Linux only.
 

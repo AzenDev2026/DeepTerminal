@@ -104,19 +104,28 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(
             f"""
             QMainWindow {{ background: {theme['window_bg']}; }}
-            QTabWidget::pane {{ border: none; background: {theme['bg']}; }}
+            QTabWidget::pane {{
+                border: none;
+                background: {theme['window_bg']};
+                border-radius: 12px;
+                margin: 0 8px 8px 8px;
+            }}
             QTabBar {{ background: {theme['window_bg']}; }}
             QTabBar::tab {{
                 background: transparent;
                 color: {theme['tab_fg']};
                 padding: 7px 8px 7px 14px;
                 border: none;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
                 border-bottom: 2px solid transparent;
                 min-width: 90px;
             }}
             QTabBar::tab:selected {{
                 color: {theme['tab_active_fg']};
                 background: {theme['bg']};
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
                 border-bottom: 2px solid {theme['accent']};
             }}
             QTabBar::tab:hover:!selected {{ background: {theme['border']}; }}

@@ -44,7 +44,7 @@ PRESETS: dict[str, dict[str, object]] = {
     "whale": {"label": "Whale", "symbol": "🐳", "symbol_color": "cyan", "path_color": "blue", "user_host": False},
     "powerline": {
         "label": "Powerline",
-        "symbol": "⚡",
+        "symbol": "❯",
         "symbol_color": "accent",
         "path_color": "",
         "user_host": True,

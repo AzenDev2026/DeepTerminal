@@ -60,8 +60,9 @@ def bash_profile(config: Config) -> ShellProfile:
         raise ShellError("bash was not found on PATH. Install it or pick another shell in Settings.")
     prompt_command = bash_prompt_command(config)
     if prompt_command is not None:
-        # Input echo stays off until this runs, so the PS1 setup never shows.
-        prompt_command += "stty echo\n"
+        # Run the PS1 setup and re-enable echo as a single command so bash
+        # prints its prompt only once instead of once per line.
+        prompt_command = prompt_command.rstrip("\n") + "; stty echo\n"
     return ShellProfile(
         key="bash",
         label="Bash",
