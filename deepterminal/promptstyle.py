@@ -253,10 +253,15 @@ def pwsh_prompt_function(config: Config) -> str | None:
     pieces: list[str] = []
     if style.powerline:
         for sequence, text in _powerline_parts(style, None):
+            # Shell expressions ($(Get-Location) …) must NOT be escaped —
+            # otherwise PowerShell would print them literally. Protect them
+            # with NUL placeholders while escaping the literal parts.
+            text = text.replace("{USERHOST}", "\x00U\x00").replace("{PATH}", "\x00P\x00")
+            text = _pwsh_escape(text)
             text = text.replace(
-                "{USERHOST}", " $([Environment]::UserName)@$([Environment]::MachineName) "
-            ).replace("{PATH}", "$(Get-Location) ")
-            pieces.append(sequence + _pwsh_escape(text))
+                "\x00U\x00", " $([Environment]::UserName)@$([Environment]::MachineName) "
+            ).replace("\x00P\x00", "$(Get-Location) ")
+            pieces.append(sequence + text)
     else:
         if style.user_host:
             pieces.append(
