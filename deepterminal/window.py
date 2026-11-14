@@ -389,24 +389,115 @@ class MainWindow(QMainWindow):
         else:
             self.showFullScreen()
 
+    def _shell_versions(self) -> list[tuple[str, str]]:
+        """Detect installed shell versions: [(label, version)]."""
+        import re
+        import shutil
+        import subprocess
+
+        result: list[tuple[str, str]] = []
+
+        pwsh = shutil.which("pwsh")
+        if pwsh:
+            try:
+                out = subprocess.run(
+                    [pwsh, "--version"], capture_output=True, text=True, timeout=10
+                ).stdout.strip()
+                version = out.splitlines()[0].strip() if out else "unknown"
+            except Exception:
+                version = "not found"
+        else:
+            version = "not found"
+        result.append(("PowerShell Core", version))
+
+        bash = shutil.which("bash")
+        if bash:
+            try:
+                out = subprocess.run(
+                    [bash, "--version"], capture_output=True, text=True, timeout=10
+                ).stdout
+                match = re.search(r"version\s+([\d.]+)", out)
+                version = match.group(1) if match else "unknown"
+            except Exception:
+                version = "not found"
+        else:
+            version = "not found"
+        result.append(("Bash", version))
+        return result
+
     def show_about(self) -> None:
+        from pathlib import Path
+
+        from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QVBoxLayout
+
         try:
             pyte_version = package_version("pyte")
         except Exception:
             pyte_version = "unknown"
         from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR
 
-        text = (
-            f"<b>{APP_NAME} {APP_VERSION}</b><br>"
+        theme = self.config.theme()
+        icon_path = Path(__file__).resolve().parent.parent / "deepterm.png"
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"About {APP_NAME}")
+        dlg.setModal(True)
+        dlg.setStyleSheet(
+            f"QDialog {{ background: {theme['window_bg']}; }}"
+            f"QLabel {{ color: {theme['fg']}; }}"
+        )
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(26, 24, 26, 20)
+        layout.setSpacing(14)
+
+        # ---- 图标 + 名称/版本 + shell 版本 ----
+        top = QHBoxLayout()
+        top.setSpacing(18)
+        icon_label = QLabel()
+        if icon_path.exists():
+            from PyQt6.QtGui import QPixmap
+
+            pixmap = QPixmap(str(icon_path)).scaled(
+                76, 76,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            icon_label.setPixmap(pixmap)
+        icon_label.setFixedSize(76, 76)
+        top.addWidget(icon_label)
+
+        info_col = QVBoxLayout()
+        info_col.setSpacing(3)
+        title = QLabel(f"<b style='font-size:17px'>{APP_NAME} {APP_VERSION}</b>")
+        info_col.addWidget(title)
+        for label, version in self._shell_versions():
+            row = QLabel(
+                f"<span style='color:{theme['tab_fg']};padding-left:6px'>{label} {version}</span>"
+            )
+            info_col.addWidget(row)
+        info_col.addStretch(1)
+        top.addLayout(info_col, 1)
+        layout.addLayout(top)
+
+        # ---- 说明 ----
+        desc = QLabel(
+            f"<span style='color:{theme['tab_fg']}'>"
             "A native Qt terminal for PowerShell, Bash and any shell.<br><br>"
-            f"Python {platform.python_version()}<br>"
-            f"Qt {QT_VERSION_STR} · PyQt {PYQT_VERSION_STR}<br>"
-            f"pyte {pyte_version}<br>"
-            f"Kernel {platform.release()}<br><br>"
-            f"pty: real pseudo-terminal · {self.tabs.count()} session(s)<br>"
+            f"Python {platform.python_version()} · Qt {QT_VERSION_STR} · PyQt {PYQT_VERSION_STR} · pyte {pyte_version}<br>"
+            f"Kernel {platform.release()} · {self.tabs.count()} session(s)<br><br>"
             "Shortcuts: Ctrl+Shift+T new tab, Ctrl+W close, Ctrl+Tab switch, "
             "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, F11 fullscreen.<br>"
             "Tips: middle-click a tab to close it, double-click to rename it, "
             "and style the prompt in Settings → Prompt."
+            "</span>"
         )
-        QMessageBox.about(self, f"About {APP_NAME}", text)
+        desc.setWordWrap(True)
+        desc.setTextFormat(Qt.TextFormat.RichText)
+        layout.addWidget(desc)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(dlg.reject)
+        layout.addWidget(buttons)
+
+        dlg.resize(470, dlg.sizeHint().height())
+        dlg.exec()

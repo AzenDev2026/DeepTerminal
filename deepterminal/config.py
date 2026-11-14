@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSettings
 ORG = "AzenDev"
 APP = "DeepTerminal"
 APP_NAME = "DeepTerminal"
-APP_VERSION = "2.5.1"
+APP_VERSION = "2.5.5"
 
 #: Selectable default shells. "custom" means the command in ``custom_shell``.
 SHELL_CHOICES = ("pwsh", "bash", "custom")
@@ -35,6 +35,16 @@ DEFAULTS: dict[str, object] = {
     "prompt_symbol_color": "",
     "prompt_path_color": "",
     "prompt_user_host": False,
+    # New in 2.5.5: powerline customization.
+    # powerline_mode: full (user@host + path) | path_only | user_only
+    "powerline_mode": "full",
+    # powerline_arrow: sharp ▸ tips between segments (True) or flat (False)
+    "powerline_arrow": True,
+    # Empty string = preset colour.
+    "powerline_user_fg": "",
+    "powerline_user_bg": "",
+    "powerline_path_fg": "",
+    "powerline_path_bg": "",
 }
 
 #: Terminal palettes. Colours map the 16 ANSI names pyte produces; values are

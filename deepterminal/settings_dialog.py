@@ -207,6 +207,34 @@ class SettingsDialog(QDialog):
             self.user_host.toggled.connect(self._on_user_host_toggled)
             form.addRow("", self.user_host)
 
+            # ---- Powerline customization (visible only for the Powerline style) ----
+            self.pl_mode = QComboBox()
+            self.pl_mode.addItem("Full (user@host + path)", "full")
+            self.pl_mode.addItem("Path only", "path_only")
+            self.pl_mode.addItem("User only", "user_only")
+            mode = self.config.get_str("powerline_mode")
+            self.pl_mode.setCurrentIndex(max(0, self.pl_mode.findData(mode)))
+            self.pl_mode.currentIndexChanged.connect(lambda _i: self._refresh_preview())
+            form.addRow("Powerline content:", self.pl_mode)
+
+            self.pl_arrow = QCheckBox("Sharp ▸ tips between segments")
+            self.pl_arrow.setChecked(self.config.get_bool("powerline_arrow"))
+            self.pl_arrow.toggled.connect(lambda _c: self._refresh_preview())
+            form.addRow("", self.pl_arrow)
+
+            def _pl_color(label: str, config_key: str) -> QComboBox:
+                combo = self._color_combo()
+                current = self.config.get_str(config_key)
+                combo.setCurrentIndex(max(0, combo.findData(current)))
+                combo.currentIndexChanged.connect(lambda _i: self._refresh_preview())
+                form.addRow(label, combo)
+                return combo
+
+            self.pl_user_fg = _pl_color("User text color:", "powerline_user_fg")
+            self.pl_user_bg = _pl_color("User background:", "powerline_user_bg")
+            self.pl_path_fg = _pl_color("Path text color:", "powerline_path_fg")
+            self.pl_path_bg = _pl_color("Path background:", "powerline_path_bg")
+
             self.format_edit = QLineEdit(self.config.get_str("prompt"))
             self.format_edit.setPlaceholderText("DT ({path})::: ")
             self.format_edit.setToolTip("{path} is replaced with the current directory.")
@@ -340,6 +368,11 @@ class SettingsDialog(QDialog):
         self.symbol_color.setEnabled(not custom and not none and not powerline)
         self.path_color.setEnabled(not custom and not none and not powerline)
         self.user_host.setEnabled(not custom and not none and not powerline)
+        # Powerline-only controls
+        for widget in (self.pl_mode, self.pl_arrow, self.pl_user_fg,
+                       self.pl_user_bg, self.pl_path_fg, self.pl_path_bg):
+            widget.setEnabled(powerline)
+            widget.setVisible(powerline)
         self._refresh_preview()
 
     def _on_user_host_toggled(self, checked: bool) -> None:
@@ -356,6 +389,12 @@ class SettingsDialog(QDialog):
                 path_color=self.path_color.currentData() or "",
                 user_host=self.user_host.isChecked(),
                 custom_format=self.format_edit.text(),
+                powerline_mode=self.pl_mode.currentData(),
+                powerline_arrow=self.pl_arrow.isChecked(),
+                pl_user_fg=self.pl_user_fg.currentData() or "",
+                pl_user_bg=self.pl_user_bg.currentData() or "",
+                pl_path_fg=self.pl_path_fg.currentData() or "",
+                pl_path_bg=self.pl_path_bg.currentData() or "",
             )
         )
 
@@ -381,6 +420,10 @@ class SettingsDialog(QDialog):
         self.path_color.setCurrentIndex(0)
         self._user_host_before_powerline = bool(DEFAULTS["prompt_user_host"])
         self.user_host.setChecked(self._user_host_before_powerline)
+        self.pl_mode.setCurrentIndex(max(0, self.pl_mode.findData(DEFAULTS["powerline_mode"])))
+        self.pl_arrow.setChecked(bool(DEFAULTS["powerline_arrow"]))
+        for combo in (self.pl_user_fg, self.pl_user_bg, self.pl_path_fg, self.pl_path_bg):
+            combo.setCurrentIndex(0)
         self.format_edit.setText(str(DEFAULTS["prompt"]))
         self._sync_custom_enabled()
         self._sync_prompt_state()
@@ -411,4 +454,10 @@ class SettingsDialog(QDialog):
             "prompt_symbol_color": self.symbol_color.currentData() or "",
             "prompt_path_color": self.path_color.currentData() or "",
             "prompt_user_host": self.user_host.isChecked(),
+            "powerline_mode": self.pl_mode.currentData(),
+            "powerline_arrow": self.pl_arrow.isChecked(),
+            "powerline_user_fg": self.pl_user_fg.currentData() or "",
+            "powerline_user_bg": self.pl_user_bg.currentData() or "",
+            "powerline_path_fg": self.pl_path_fg.currentData() or "",
+            "powerline_path_bg": self.pl_path_bg.currentData() or "",
         }

@@ -63,6 +63,14 @@ PRESETS: dict[str, dict[str, object]] = {
 STYLE_ORDER = ("arrow", "angled", "minimal", "powerline", "whale", "custom", "none")
 
 
+#: Valid powerline content modes.
+PL_MODES = ("full", "path_only", "user_only")
+
+#: Separator drawn between powerline segments (sharp tip). ▸ is available in
+#: almost every font, unlike the private-use powerline glyphs.
+PL_ARROW = "▸"
+
+
 @dataclass
 class PromptStyle:
     """One fully resolved prompt look."""
@@ -77,6 +85,8 @@ class PromptStyle:
     path_fg: str = ""
     path_bg: str = ""
     symbol_on_bg: str = "#ffffff"
+    mode: str = "full"      # full | path_only | user_only
+    arrow: bool = True      # sharp ▸ tips between segments
 
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
@@ -101,6 +111,12 @@ def build_style(
     symbol_color: str = "",
     path_color: str = "",
     user_host: bool = False,
+    powerline_mode: str = "full",
+    powerline_arrow: bool = True,
+    pl_user_fg: str = "",
+    pl_user_bg: str = "",
+    pl_path_fg: str = "",
+    pl_path_bg: str = "",
 ) -> PromptStyle | None:
     """Resolve a prompt style from explicit values (no Config involved).
 
@@ -114,17 +130,20 @@ def build_style(
     chosen_symbol = (symbol or "").strip() or str(preset["symbol"])
     chosen_symbol_color = (symbol_color or "").strip() or str(preset["symbol_color"])
     chosen_path_color = (path_color or "").strip() or str(preset["path_color"]) or "blue"
+    mode = powerline_mode if powerline_mode in PL_MODES else "full"
     return PromptStyle(
         symbol=chosen_symbol,
         symbol_hex=COLORS.get(chosen_symbol_color, COLORS["cyan"]),
         path_hex="" if powerline else COLORS.get(chosen_path_color, COLORS["blue"]),
         user_host=bool(user_host) or bool(preset.get("user_host")),
         powerline=powerline,
-        user_host_fg=str(preset.get("user_host_fg", "")),
-        user_host_bg=str(preset.get("user_host_bg", "")),
-        path_fg=str(preset.get("path_fg", "")),
-        path_bg=str(preset.get("path_bg", "")),
+        user_host_fg=COLORS.get(pl_user_fg) or str(preset.get("user_host_fg", "")),
+        user_host_bg=COLORS.get(pl_user_bg) or str(preset.get("user_host_bg", "")),
+        path_fg=COLORS.get(pl_path_fg) or str(preset.get("path_fg", "")),
+        path_bg=COLORS.get(pl_path_bg) or str(preset.get("path_bg", "")),
         symbol_on_bg=str(preset.get("symbol_on_bg", "#ffffff")),
+        mode=mode,
+        arrow=bool(powerline_arrow),
     )
 
 
@@ -139,6 +158,12 @@ def style_for(config: Config) -> PromptStyle | None:
         symbol_color=config.get_str("prompt_symbol_color"),
         path_color=config.get_str("prompt_path_color"),
         user_host=config.get_bool("prompt_user_host"),
+        powerline_mode=config.get_str("powerline_mode"),
+        powerline_arrow=config.get_bool("powerline_arrow"),
+        pl_user_fg=config.get_str("powerline_user_fg"),
+        pl_user_bg=config.get_str("powerline_user_bg"),
+        pl_path_fg=config.get_str("powerline_path_fg"),
+        pl_path_bg=config.get_str("powerline_path_bg"),
     )
 
 
@@ -150,6 +175,34 @@ def _bash_segment(sequence: str, text: str) -> str:
 def _pwsh_escape(text: str) -> str:
     """Escape user text for a PowerShell double-quoted string."""
     return text.replace("`", "``").replace("$", "`$").replace('"', '`"')
+
+
+def _powerline_parts(style: PromptStyle, escape) -> list[str]:
+    """Shared powerline segment assembly for Bash and PowerShell.
+
+    ``escape`` converts a raw SGR sequence into the shell's escaping flavour
+    (Bash ``\\[ ... \\]`` vs PowerShell `` `e ``), and the literal segment
+    texts are returned alongside so callers can escape user text themselves.
+    Returns a list of alternating (sequence, text) tuples.
+    """
+    seqs: list[tuple[str, str]] = []
+    show_user = style.mode in ("full", "user_only") and style.user_host_bg
+    show_path = style.mode in ("full", "path_only") and style.path_bg
+
+    if show_user:
+        seqs.append((sgr(fg=style.user_host_fg, bg=style.user_host_bg), "{USERHOST} "))
+        if style.arrow:
+            next_bg = style.path_bg if show_path else ""
+            seqs.append((sgr(fg=style.user_host_bg, bg=next_bg), PL_ARROW))
+    if show_path:
+        seqs.append((sgr(fg=style.path_fg, bg=style.path_bg), "{PATH} "))
+        if style.arrow:
+            seqs.append((sgr(fg=style.path_bg), PL_ARROW))
+        seqs.append((sgr(fg=style.symbol_on_bg, bg=style.path_bg), style.symbol))
+    else:
+        seqs.append((sgr(fg=style.symbol_hex), style.symbol))
+    seqs.append((RESET, " "))
+    return seqs
 
 
 def bash_ps1(config: Config) -> str:
@@ -164,14 +217,9 @@ def bash_ps1(config: Config) -> str:
         return ""
     parts: list[str] = []
     if style.powerline:
-        if style.user_host and style.user_host_bg:
-            parts.append(_bash_segment(sgr(fg=style.user_host_fg, bg=style.user_host_bg), r" \u@\h "))
-        if style.path_bg:
-            parts.append(_bash_segment(sgr(fg=style.path_fg, bg=style.path_bg), r"\w "))
-            parts.append(_bash_segment(sgr(fg=style.symbol_on_bg, bg=style.path_bg), style.symbol))
-        else:
-            parts.append(_bash_segment(sgr(fg=style.symbol_hex), style.symbol))
-        parts.append(_bash_segment(RESET, " "))
+        for sequence, text in _powerline_parts(style, None):
+            text = text.replace("{USERHOST}", r"\u@\h").replace("{PATH}", r"\w")
+            parts.append(_bash_segment(sequence, text))
     else:
         if style.user_host:
             parts.append(_bash_segment(sgr(fg=style.path_hex), r"\u@\h "))
@@ -204,17 +252,11 @@ def pwsh_prompt_function(config: Config) -> str | None:
         return None
     pieces: list[str] = []
     if style.powerline:
-        if style.user_host and style.user_host_bg:
-            pieces.append(
-                sgr(fg=style.user_host_fg, bg=style.user_host_bg)
-                + " $([Environment]::UserName)@$([Environment]::MachineName) "
-            )
-        if style.path_bg:
-            pieces.append(sgr(fg=style.path_fg, bg=style.path_bg) + "$(Get-Location) ")
-            pieces.append(sgr(fg=style.symbol_on_bg, bg=style.path_bg) + _pwsh_escape(style.symbol))
-        else:
-            pieces.append(sgr(fg=style.symbol_hex) + _pwsh_escape(style.symbol))
-        pieces.append(RESET + " ")
+        for sequence, text in _powerline_parts(style, None):
+            text = text.replace(
+                "{USERHOST}", " $([Environment]::UserName)@$([Environment]::MachineName) "
+            ).replace("{PATH}", "$(Get-Location) ")
+            pieces.append(sequence + _pwsh_escape(text))
     else:
         if style.user_host:
             pieces.append(
@@ -245,6 +287,12 @@ def preview_html(
     path_color: str = "",
     user_host: bool = False,
     custom_format: str = "",
+    powerline_mode: str = "full",
+    powerline_arrow: bool = True,
+    pl_user_fg: str = "",
+    pl_user_bg: str = "",
+    pl_path_fg: str = "",
+    pl_path_bg: str = "",
 ) -> str:
     """Small HTML preview of a prompt for the settings dialog."""
     key = (name or "").strip().lower()
@@ -253,19 +301,37 @@ def preview_html(
     if key == "custom":
         text = (custom_format or "").replace("{path}", "~/projects")
         return html.escape(text) or "&nbsp;"
-    style = build_style(key, symbol, symbol_color, path_color, user_host)
+    style = build_style(
+        key, symbol, symbol_color, path_color, user_host,
+        powerline_mode=powerline_mode, powerline_arrow=powerline_arrow,
+        pl_user_fg=pl_user_fg, pl_user_bg=pl_user_bg,
+        pl_path_fg=pl_path_fg, pl_path_bg=pl_path_bg,
+    )
     if style is None:
         return "&nbsp;"
     path = "~/projects"
     bits: list[str] = []
     if style.powerline:
-        if style.user_host and style.user_host_bg:
+        show_user = style.mode in ("full", "user_only") and style.user_host_bg
+        show_path = style.mode in ("full", "path_only") and style.path_bg
+
+        def tip(fg: str, bg: str = "") -> str:
+            if not style.arrow:
+                return ""
+            bg_style = f"background:{bg};" if bg else ""
+            return (
+                f'<span style="color:{fg};{bg_style}">{html.escape(PL_ARROW)}</span>'
+            )
+
+        if show_user:
             bits.append(
                 f'<span style="background:{style.user_host_bg};color:{style.user_host_fg};'
                 f'border-radius:4px 0 0 4px;">&nbsp;user@host&nbsp;</span>'
             )
-        if style.path_bg:
+            bits.append(tip(style.user_host_bg, style.path_bg if show_path else ""))
+        if show_path:
             bits.append(f'<span style="background:{style.path_bg};color:{style.path_fg};">&nbsp;{path}&nbsp;</span>')
+            bits.append(tip(style.path_bg))
             bits.append(
                 f'<span style="background:{style.path_bg};color:{style.symbol_on_bg};'
                 f'border-radius:0 4px 4px 0;">{html.escape(style.symbol)}&nbsp;</span>'
