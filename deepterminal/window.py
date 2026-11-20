@@ -488,7 +488,8 @@ class MainWindow(QMainWindow):
             "Shortcuts: Ctrl+Shift+T new tab, Ctrl+W close, Ctrl+Tab switch, "
             "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, F11 fullscreen.<br>"
             "Tips: middle-click a tab to close it, double-click to rename it, "
-            "and style the prompt in Settings → Prompt."
+            "and style the prompt in Settings → Prompt.<br>"
+            "Type <b>DTinfo</b> in any tab to see this info right in the terminal."
             "</span>"
         )
         desc.setWordWrap(True)

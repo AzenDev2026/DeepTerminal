@@ -21,6 +21,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QScrollBar, QWidget
 
+from .about import about_text
 from .config import Config, default_font_family, get_theme
 from .emulator import TerminalScreen, make_emulator
 from .ptyproc import PtyProcess
@@ -33,7 +34,7 @@ REPAINT_MS = 8
 BLINK_MS = 530
 WHEEL_LINES = 3
 CORNER_RADIUS = 10.0
-AUTO_CLEAR_MS = 300
+AUTO_FONT_SETTLE_MS = 120
 PROMPT_INJECT_DELAY_MS = 50
 
 _CTRL = Qt.KeyboardModifier.ControlModifier
@@ -217,10 +218,16 @@ class TerminalView(QWidget):
         self._search_refresh_timer.setInterval(180)
         self._search_refresh_timer.timeout.connect(self._refresh_search)
 
-        self._clear_timer = QTimer(self)
-        self._clear_timer.setSingleShot(True)
-        self._clear_timer.setInterval(AUTO_CLEAR_MS)
-        self._clear_timer.timeout.connect(self._auto_clear)
+        self._resize_timer = QTimer(self)
+        self._resize_timer.setSingleShot(True)
+        self._resize_timer.setInterval(AUTO_FONT_SETTLE_MS)
+        self._resize_timer.timeout.connect(self._resize_grid)
+
+        # 字体自适应：参考窗口尺寸 + 参考字号，随窗口面积缩放
+        self._auto_ref: tuple[int, int] | None = None
+        self._auto_base: float | None = None
+        self._font_point: float = 11.0
+        self._first_shell = True
 
         self.emulator.on_bell = self._on_bell
         self.emulator.on_reply = self._on_emulator_reply
@@ -254,6 +261,10 @@ class TerminalView(QWidget):
         if notice:
             self._pending_notice = ""
             self._message("\r\n" + notice + "\r\n")
+        if self._first_shell:
+            # 新 tab 的欢迎横幅：用字符在终端里显示「关于 DeepTerminal」
+            self._first_shell = False
+            self._message(about_text() + "\r\n")
         if self.profile.prompt_command:
             # Wait a moment so the child process has disabled ECHO before the
             # setup is written; writing immediately races the fork and can
@@ -309,7 +320,7 @@ class TerminalView(QWidget):
         self._blink_timer.stop()
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
-        self._clear_timer.stop()
+        self._resize_timer.stop()
         startup_timer = getattr(self, "_startup_timer", None)
         if startup_timer is not None:
             startup_timer.stop()
@@ -415,13 +426,15 @@ class TerminalView(QWidget):
         self.update()
 
     # -- appearance ------------------------------------------------------
-    def _apply_font(self) -> None:
+    def _apply_font(self, size: float | None = None) -> None:
         family = self.config.get_str("font_family").strip() or default_font_family()
         font = QFont(family)
         font.setStyleHint(QFont.StyleHint.Monospace)
         font.setFixedPitch(True)
-        font.setPointSize(self.config.get_int("font_size"))
+        point = float(size) if size is not None else float(self.config.get_int("font_size"))
+        font.setPointSizeF(point)
         self.font = font
+        self._font_point = point
         metrics = QFontMetricsF(font)
         self._cell_w = max(1.0, float(metrics.horizontalAdvance("M")))
         self._cell_h = max(1.0, float(metrics.height()))
@@ -447,6 +460,13 @@ class TerminalView(QWidget):
     def apply_settings(self) -> None:
         """Apply live settings (theme, font, blink). Shell needs a new tab."""
         self._apply_font()
+        if self.config.get_bool("auto_font") and self.width() > 0 and self.height() > 0:
+            # 手动改字号后：以当前窗口大小为新的参考基准
+            self._auto_ref = (self.width(), self.height())
+            self._auto_base = float(self.config.get_int("font_size"))
+        else:
+            self._auto_ref = None
+            self._auto_base = None
         self._apply_theme()
         if self.config.get_bool("cursor_blink") and not self._exited:
             self._blink_timer.start()
@@ -457,7 +477,25 @@ class TerminalView(QWidget):
         self.update()
 
     # -- geometry --------------------------------------------------------
+    def _apply_auto_font(self) -> None:
+        """字体自适应窗口：字号随窗口面积等比缩放（6–32pt 之间）。"""
+        if not self.config.get_bool("auto_font"):
+            return
+        width, height = self.width(), self.height()
+        if width <= 0 or height <= 0:
+            return
+        if self._auto_ref is None or self._auto_base is None:
+            self._auto_ref = (width, height)
+            self._auto_base = float(self._font_point)
+            return
+        ref_w, ref_h = self._auto_ref
+        scale = ((width * height) / (ref_w * ref_h)) ** 0.5
+        target = max(6.0, min(32.0, round(self._auto_base * scale)))
+        if int(target) != int(self._font_point):
+            self._apply_font(target)
+
     def _resize_grid(self) -> None:
+        self._apply_auto_font()
         available_width = max(1.0, self.width() - SCROLLBAR_WIDTH - 2 * PAD_X)
         available_height = max(1.0, self.height() - 2 * PAD_Y)
         columns = max(2, int(available_width // self._cell_w))
@@ -467,7 +505,6 @@ class TerminalView(QWidget):
         self.emulator.resize(lines, columns)
         if self.pty is not None:
             self.pty.resize(lines, columns)
-        self._schedule_auto_clear()
         self._scroll_offset = min(self._scroll_offset, self._max_offset())
         if self._search_query.strip() != "":
             index = self._search_index
@@ -477,24 +514,10 @@ class TerminalView(QWidget):
         self._sync_scrollbar()
         self.size_changed.emit()
 
-    def _schedule_auto_clear(self) -> None:
-        """After a resize settles, refresh the shell with a clear-screen.
-
-        Reflowing keeps every character, but the shell redraws its prompt on
-        SIGWINCH and can leave it stranded at the bottom of the screen. Sending
-        Ctrl+L (readline's clear-screen) repaints a fresh prompt at the top,
-        exactly like typing ``clear`` — without polluting shell history.
-        """
-        if self._shell_ready and not self._exited and not self.emulator.alt_screen:
-            self._clear_timer.start()
-
-    def _auto_clear(self) -> None:
-        if self._shell_ready and not self._exited and not self.emulator.alt_screen:
-            self._write_input(b"\x0c")
-
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._scrollbar.setGeometry(self.width() - SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, self.height())
-        self._resize_grid()
+        # 拖拽窗口期间 resize 事件很密集，稍等 120ms 再重排网格 + 自适应字体
+        self._resize_timer.start()
         super().resizeEvent(event)
 
     # -- painting --------------------------------------------------------
@@ -730,6 +753,9 @@ class TerminalView(QWidget):
             size = max(6, min(32, self.config.get_int("font_size") + direction))
         self.config.set("font_size", size)
         self._apply_font()
+        if self.config.get_bool("auto_font") and self.width() > 0 and self.height() > 0:
+            self._auto_ref = (self.width(), self.height())
+            self._auto_base = float(self.config.get_int("font_size"))
         self._resize_grid()
         self.update()
 

@@ -178,6 +178,11 @@ class SettingsDialog(QDialog):
             self.blink.setChecked(self.config.get_bool("cursor_blink"))
             form.addRow("", self.blink)
 
+            self.auto_font = QCheckBox("Auto font size — scale the font with the window")
+            self.auto_font.setToolTip("When enabled, the font grows and shrinks together with the window.")
+            self.auto_font.setChecked(self.config.get_bool("auto_font"))
+            form.addRow("", self.auto_font)
+
         return self._page(build)
 
     def _build_prompt_page(self) -> QWidget:
@@ -414,6 +419,7 @@ class SettingsDialog(QDialog):
         self.font_size.setValue(int(DEFAULTS["font_size"]))
         self.scrollback.setValue(int(DEFAULTS["scrollback"]))
         self.blink.setChecked(bool(DEFAULTS["cursor_blink"]))
+        self.auto_font.setChecked(bool(DEFAULTS["auto_font"]))
         self.style_combo.setCurrentIndex(max(0, self.style_combo.findData(DEFAULTS["prompt_style"])))
         self.symbol_edit.setText(str(DEFAULTS["prompt_symbol"]))
         self.symbol_color.setCurrentIndex(0)
@@ -448,6 +454,7 @@ class SettingsDialog(QDialog):
             "font_size": self.font_size.value(),
             "scrollback": self.scrollback.value(),
             "cursor_blink": self.blink.isChecked(),
+            "auto_font": self.auto_font.isChecked(),
             "prompt": self.format_edit.text(),
             "prompt_style": self.style_combo.currentData(),
             "prompt_symbol": self.symbol_edit.text().strip(),

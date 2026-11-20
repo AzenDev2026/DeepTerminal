@@ -7,6 +7,7 @@ import shlex
 import shutil
 from dataclasses import dataclass
 
+from .about import about_text
 from .config import APP_VERSION, Config
 from .promptstyle import bash_prompt_command, pwsh_prompt_function
 
@@ -32,6 +33,18 @@ class ShellProfile:
         return self.label
 
 
+def _bash_dtinfo_setup(text: str) -> str:
+    """Bash command defining DTinfo() — one single command so the shell
+    prints its prompt only once."""
+    body = text.rstrip("\n")
+    return "DTinfo() { cat <<'DTINFO_EOF'\n" + body + "\nDTINFO_EOF\n}"
+
+
+def _pwsh_dtinfo_setup(text: str) -> str:
+    """PowerShell function DTinfo printing the About block."""
+    return "function DTinfo { Write-Host -NoNewline @'\n" + text + "'@ }"
+
+
 def pwsh_profile(config: Config) -> ShellProfile:
     executable = shutil.which("pwsh")
     if executable is None:
@@ -39,18 +52,15 @@ def pwsh_profile(config: Config) -> ShellProfile:
             "PowerShell 7 (pwsh) was not found on PATH. Install it or pick another shell in Settings."
         )
     prompt_function = pwsh_prompt_function(config)
-    if prompt_function is None:
-        argv: tuple[str, ...] = (executable, "-NoLogo")
-    else:
-        init = "; ".join(
-            [
-                prompt_function,
-                "$env:PAGER = 'cat'",
-                "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
-                "$OutputEncoding = [System.Text.Encoding]::UTF8",
-            ]
-        )
-        argv = (executable, "-NoLogo", "-NoExit", "-Command", init)
+    parts = [
+        prompt_function,
+        _pwsh_dtinfo_setup(about_text()),
+        "$env:PAGER = 'cat'",
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+        "$OutputEncoding = [System.Text.Encoding]::UTF8",
+    ]
+    init = "; ".join(part for part in parts if part)
+    argv = (executable, "-NoLogo", "-NoExit", "-Command", init)
     return ShellProfile(key="pwsh", label="PowerShell 7", argv=argv)
 
 
@@ -58,17 +68,18 @@ def bash_profile(config: Config) -> ShellProfile:
     executable = shutil.which("bash")
     if executable is None:
         raise ShellError("bash was not found on PATH. Install it or pick another shell in Settings.")
-    prompt_command = bash_prompt_command(config)
-    if prompt_command is not None:
-        # Run the PS1 setup and re-enable echo as a single command so bash
-        # prints its prompt only once instead of once per line.
-        prompt_command = prompt_command.rstrip("\n") + "; stty echo\n"
+    setup = bash_prompt_command(config)
+    if setup:
+        # Run the PS1 setup, define DTinfo and re-enable echo as a single
+        # command so bash prints its prompt only once instead of once per line.
+        setup = setup.rstrip("\n") + "; "
+    setup += _bash_dtinfo_setup(about_text()) + "; stty echo\n"
     return ShellProfile(
         key="bash",
         label="Bash",
         argv=(executable, "-i"),
-        prompt_command=prompt_command,
-        echo_off=prompt_command is not None,
+        prompt_command=setup,
+        echo_off=True,
     )
 
 

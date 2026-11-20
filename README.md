@@ -19,6 +19,12 @@ is never echoed to the screen.
 Version 2.5.1 reflows the screen and scrollback when the window is
 resized, so wrapped text re-wraps at the new width instead of being clipped.
 
+Version 2.6.0 stops clearing the screen on resize (reflow only), adds
+**auto font size** (the font scales with the window area, 6–32 pt, toggle in
+Settings → Appearance), shows the **About DeepTerminal** banner inside every
+new tab, and brings back an in-terminal about command: type **`DTinfo`** in a
+Bash or PowerShell tab to print the same info box right in the terminal.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features
@@ -37,7 +43,10 @@ resized, so wrapped text re-wraps at the new width instead of being clipped.
   string is still supported.
 - **Scrollback** (configurable, default 5000 lines), mouse wheel and scrollbar.
 - **Reflow on resize**: resizing the window re-wraps and re-joins wrapped lines
-  in both the screen and scrollback, so no text is clipped away.
+  in both the screen and scrollback, so no text is clipped away — and it never
+  clears the screen.
+- **Auto font size**: the font grows and shrinks together with the window
+  (toggle in Settings → Appearance; manual zoom Ctrl+= / Ctrl+- recentres it).
 - **Search** across screen and scrollback (`Ctrl+Shift+F`) with highlight and
   next/previous navigation.
 - **Selection and clipboard**: drag selection, double-click word, select all,
@@ -95,7 +104,9 @@ PowerShell and Bash; the **Custom format** style uses the legacy plain string
 with `{path}` for the current directory. **Shell default** leaves the shell's
 own prompt untouched, and custom shells always keep their own prompt. Beta 1
 settings (`prompt`, `theme`, `startup_cmd`) are preserved, and the old `terinfo`
-command now lives in **＋ → About DeepTerminal**.
+command is back as **`DTinfo`**: type it in a Bash or PowerShell tab to print
+the About DeepTerminal info box in the terminal. The dialog itself lives in
+**＋ → About DeepTerminal**.
 
 ## Keyboard shortcuts
 
