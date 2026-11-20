@@ -13,7 +13,7 @@ import subprocess
 
 from .config import APP_NAME, APP_VERSION
 
-_WIDTH = 48
+_WIDTH = 52
 _INNER = _WIDTH - 4
 
 
@@ -58,8 +58,8 @@ def _versions_line() -> str:
         QT_VERSION_STR = PYQT_VERSION_STR = "?"
     python_v = platform.python_version()
     return (
-        f"Python {python_v} · Qt {QT_VERSION_STR}"
-        f" · PyQt {PYQT_VERSION_STR} · pyte {_pyte_version()}"
+        f"Python {python_v} · Qt {QT_VERSION_STR}",
+        f"PyQt {PYQT_VERSION_STR} · pyte {_pyte_version()}",
     )
 
 
@@ -77,6 +77,7 @@ def _box(lines: list[str]) -> str:
 
 def about_text() -> str:
     """Character-boxed About block shown in the terminal."""
+    python_row, pyqt_row = _versions_line()
     lines = [
         "",
         "  ██████╗ ████████╗      " + f"{APP_NAME} {APP_VERSION}",
@@ -88,7 +89,8 @@ def about_text() -> str:
         "",
         "  PowerShell Core  " + _pwsh_version(),
         "  Bash             " + _bash_version(),
-        "  " + _versions_line(),
+        "  " + python_row,
+        "  " + pyqt_row,
         "",
         "  Type DTinfo to see this again",
     ]
