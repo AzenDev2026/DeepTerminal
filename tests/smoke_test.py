@@ -379,6 +379,25 @@ def test_window(app: QApplication) -> None:
         app.processEvents()
 
 
+def test_about_banner() -> None:
+    from deepterminal.about import about_text
+
+    # Client-side drawing bypasses the tty, so \n must become \r\n or the
+    # cursor column drifts and the box turns into garbage (the 2.6.0 bug).
+    text = about_text().replace("\n", "\r\n") + "\r\n"
+    screen, stream = make_emulator(80, 24, 100)
+    stream.feed(text.encode("utf-8"))
+    rows = [screen.text_of_row(y).rstrip() for y in range(screen.lines)]
+    nonblank = [row for row in rows if row.strip()]
+    check("banner starts with the top border", nonblank[0].startswith("╭"), nonblank[0])
+    check("banner ends with the bottom border", nonblank[-1].startswith("╰"), nonblank[-1])
+    widths = [len(row) for row in nonblank]
+    check("banner rows are all aligned", len(set(widths)) == 1, str(widths))
+    check("banner shows the app version", "DeepTerminal" in text)
+    joined = "".join(nonblank)
+    check("banner has no drift garbage", "╭" in joined and joined.count("╮") == 1, nonblank[1:3])
+
+
 def main() -> int:
     app = QApplication(sys.argv[:1])
     test_emulator()
@@ -387,6 +406,7 @@ def main() -> int:
     test_pty(app)
     test_view_extras(app)
     test_window(app)
+    test_about_banner()
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {', '.join(FAILURES)}")
         return 1

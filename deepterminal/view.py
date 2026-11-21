@@ -261,10 +261,15 @@ class TerminalView(QWidget):
         if notice:
             self._pending_notice = ""
             self._message("\r\n" + notice + "\r\n")
-        if self._first_shell:
-            # 新 tab 的欢迎横幅：用字符在终端里显示「关于 DeepTerminal」
+        if self._first_shell and self.profile.key == "custom":
+            # Custom shells get the welcome banner drawn client-side (bash and
+            # PowerShell print it themselves right after the auto-clear, so it
+            # always lands above their first prompt). The client-side path
+            # bypasses the tty, so every line ending must carry its own \r.
             self._first_shell = False
-            self._message(about_text() + "\r\n")
+            self._message(about_text().replace("\n", "\r\n") + "\r\n")
+        else:
+            self._first_shell = False
         if self.profile.prompt_command:
             # Wait a moment so the child process has disabled ECHO before the
             # setup is written; writing immediately races the fork and can

@@ -183,6 +183,11 @@ class SettingsDialog(QDialog):
             self.auto_font.setChecked(self.config.get_bool("auto_font"))
             form.addRow("", self.auto_font)
 
+            self.auto_clear = QCheckBox("Run 'clear' when a tab opens")
+            self.auto_clear.setToolTip("Clears the screen automatically each time a shell starts, so every tab opens fresh.")
+            self.auto_clear.setChecked(self.config.get_bool("auto_clear"))
+            form.addRow("", self.auto_clear)
+
         return self._page(build)
 
     def _build_prompt_page(self) -> QWidget:
@@ -420,6 +425,7 @@ class SettingsDialog(QDialog):
         self.scrollback.setValue(int(DEFAULTS["scrollback"]))
         self.blink.setChecked(bool(DEFAULTS["cursor_blink"]))
         self.auto_font.setChecked(bool(DEFAULTS["auto_font"]))
+        self.auto_clear.setChecked(bool(DEFAULTS["auto_clear"]))
         self.style_combo.setCurrentIndex(max(0, self.style_combo.findData(DEFAULTS["prompt_style"])))
         self.symbol_edit.setText(str(DEFAULTS["prompt_symbol"]))
         self.symbol_color.setCurrentIndex(0)
@@ -455,6 +461,7 @@ class SettingsDialog(QDialog):
             "scrollback": self.scrollback.value(),
             "cursor_blink": self.blink.isChecked(),
             "auto_font": self.auto_font.isChecked(),
+            "auto_clear": self.auto_clear.isChecked(),
             "prompt": self.format_edit.text(),
             "prompt_style": self.style_combo.currentData(),
             "prompt_symbol": self.symbol_edit.text().strip(),

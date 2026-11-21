@@ -72,6 +72,9 @@ def _box(lines: list[str]) -> str:
             text = text[:_INNER]
         return "│ " + text.ljust(_INNER) + " │"
 
+    # Lines end with \n here: the shell-side DTinfo output goes through the
+    # PTY where the tty converts \n to \r\n. The terminal widget's client-side
+    # banner converts to \r\n itself before feeding the emulator.
     return "\n".join([top] + [row(line) for line in lines] + [bottom])
 
 

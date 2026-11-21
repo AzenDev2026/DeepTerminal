@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSettings
 ORG = "AzenDev"
 APP = "DeepTerminal"
 APP_NAME = "DeepTerminal"
-APP_VERSION = "2.6.0"
+APP_VERSION = "2.6.1"
 
 #: Selectable default shells. "custom" means the command in ``custom_shell``.
 SHELL_CHOICES = ("pwsh", "bash", "custom")
@@ -47,6 +47,9 @@ DEFAULTS: dict[str, object] = {
     "powerline_path_bg": "",
     # New in 2.6: auto font size — the font scales with the window area.
     "auto_font": True,
+    # New in 2.6.1: run `clear` automatically each time a shell opens
+    # (bash / PowerShell tabs) so the screen always starts fresh.
+    "auto_clear": True,
 }
 
 #: Terminal palettes. Colours map the 16 ANSI names pyte produces; values are

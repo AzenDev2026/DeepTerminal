@@ -173,7 +173,9 @@ class TerminalScreen(HistoryScreen):
             history_pairs = pairs[:-new_lines]
             screen_pairs = pairs[-new_lines:]
         if len(screen_pairs) < new_lines:
-            screen_pairs = [([], False) for _ in range(new_lines - len(screen_pairs))] + screen_pairs
+            # Pad below the content (like real terminals when the window
+            # grows): the prompt stays where it is instead of sinking down.
+            screen_pairs = screen_pairs + [([], False) for _ in range(new_lines - len(screen_pairs))]
 
         # 4. Rebuild history and screen, and re-derive the wrap flags so a
         #    later reflow can rejoin lines again.

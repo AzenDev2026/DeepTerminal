@@ -25,6 +25,11 @@ Settings → Appearance), shows the **About DeepTerminal** banner inside every
 new tab, and brings back an in-terminal about command: type **`DTinfo`** in a
 Bash or PowerShell tab to print the same info box right in the terminal.
 
+Version 2.6.1 fixes the garbled banner on first open (the box now renders
+line-aligned instead of drifting right), runs **`clear` automatically** each
+time a Bash or PowerShell tab opens (toggle in Settings → General), and keeps
+the prompt in place instead of sinking when the window grows.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features

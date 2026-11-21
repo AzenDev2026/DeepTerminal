@@ -37,7 +37,7 @@ def _bash_dtinfo_setup(text: str) -> str:
     """Bash command defining DTinfo() — one single command so the shell
     prints its prompt only once."""
     body = text.rstrip("\n")
-    return "DTinfo() { cat <<'DTINFO_EOF'\n" + body + "\nDTINFO_EOF\n}"
+    return "DTinfo() { cat <<'DTINFO_EOF'\n" + body + "\nDTINFO_EOF\nprintf '\\n'\n}"
 
 
 def _pwsh_dtinfo_setup(text: str) -> str:
@@ -59,6 +59,10 @@ def pwsh_profile(config: Config) -> ShellProfile:
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
         "$OutputEncoding = [System.Text.Encoding]::UTF8",
     ]
+    if config.get_bool("auto_clear"):
+        parts.append("Clear-Host")
+    # Print the About banner, then let the shell show its first prompt.
+    parts.append("DTinfo")
     init = "; ".join(part for part in parts if part)
     argv = (executable, "-NoLogo", "-NoExit", "-Command", init)
     return ShellProfile(key="pwsh", label="PowerShell 7", argv=argv)
@@ -73,7 +77,12 @@ def bash_profile(config: Config) -> ShellProfile:
         # Run the PS1 setup, define DTinfo and re-enable echo as a single
         # command so bash prints its prompt only once instead of once per line.
         setup = setup.rstrip("\n") + "; "
-    setup += _bash_dtinfo_setup(about_text()) + "; stty echo\n"
+    setup += _bash_dtinfo_setup(about_text()) + "; stty echo"
+    if config.get_bool("auto_clear"):
+        # Clear the screen automatically on open (fall back to raw ANSI if
+        # `clear` is not installed), then show the About banner.
+        setup += "; command -v clear >/dev/null 2>&1 && clear || printf '\\033[2J\\033[H'"
+    setup += "; DTinfo\n"
     return ShellProfile(
         key="bash",
         label="Bash",
