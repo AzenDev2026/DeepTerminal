@@ -373,9 +373,24 @@ def test_codeout() -> None:
     line = random_line()
     check(
         "random line is a coloured status tag",
-        re_module.match(r"^\x1b\[1;\d+m\[[a-z]+\]\x1b\[0m", line) is not None,
+        re_module.match(r"^\x1b\[1;38;2;\d+;\d+;\d+m\[[a-z]+\]\x1b\[0m", line) is not None,
         repr(line),
     )
+    check("line ends with a colour reset", line.endswith("\x1b[0m"), repr(line))
+
+    from deepterminal import codeout as codeout_module
+
+    colors = codeout_module._STATUS_COLORS
+    check("error tag is vivid red", colors["error"] == "1;38;2;255;60;60", str(colors["error"]))
+    check("successful tag is bright green", colors["successful"] == "1;38;2;0;255;90", str(colors["successful"]))
+    check("loading tag is orange", colors["loading"] == "1;38;2;255;150;30", str(colors["loading"]))
+    check(
+        "other statuses are bright white",
+        all(colors[status] == "1;38;2;255;255;255" for status in ("warning", "info", "debug")),
+        str(colors["warning"]),
+    )
+    longest = max(len(message) for _status, message in codeout_module._LINES)
+    check("pool mixes in long realistic lines", longest > 60, str(longest))
 
     match = TRIGGER_RE.search(b"noise\x1b]663;codeout 3s fast\x07more")
     check("trigger marker parses args", match is not None and match.group(1) == b" 3s fast")

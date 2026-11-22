@@ -32,11 +32,15 @@ the prompt in place instead of sinking when the window grows.
 
 Version 2.6.5 adds **`codeout`**, a purely-for-fun command that floods the
 terminal with a fake "system boot" log (`[successful]eating a pizza`,
-`[error]dont want to go to school`, `[loading]system DeepTerminal`, …), each
-status in its own colour. Type `codeout` in a Bash or PowerShell tab; tune it
-with `codeout 3s`, `codeout fast`, `codeout super`, or both at once
-(`codeout 3s super`). Every 60 lines the oldest 30 are cleaned up so the
-flood never piles up. Defaults live in `~/.config/AzenDev/DeepTerminal/codeout-conf.txt`:
+`[error]dont want to go to school`, `[loading]system DeepTerminal`, …).
+Version 2.6.7 polishes the look: tags use just four colours — vivid red
+errors, bright green successes, orange loading, bright white for the rest —
+and the stream mixes in longer kernel-log style lines (paths, timestamps,
+hex addresses) so it reads like a real boot console. Type `codeout` in a
+Bash or PowerShell tab; tune it with `codeout 3s`, `codeout fast`,
+`codeout super`, or both at once (`codeout 3s super`). Every 60 lines the
+oldest 30 are cleaned up so the flood never piles up. Defaults live in
+`~/.config/AzenDev/DeepTerminal/codeout-conf.txt`:
 
 ```
 #code output config

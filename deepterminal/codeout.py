@@ -61,19 +61,25 @@ HELP_TEXT = (
     "  codeout conf         print the config file path\r\n"
 )
 
-#: Status word -> ANSI colour code for the ``[status]`` prefix.
+#: Status word -> ANSI colour code for the ``[status]`` prefix. Kept to just
+#: four colours so the flood reads like a real kernel log: vivid red for
+#: errors, bright green for successes, orange for loading, and bright white
+#: for everything else.
+_TRUE_WHITE = "38;2;255;255;255"
 _STATUS_COLORS = {
-    "successful": "1;32",  # bold green
-    "ok": "1;32",
-    "error": "1;31",  # bold red
-    "failed": "1;31",
-    "warning": "1;33",  # bold brown/yellow
-    "loading": "1;36",  # bold cyan
-    "info": "1;34",  # bold blue
-    "debug": "1;35",  # bold magenta
+    "successful": "1;38;2;0;255;90",  # bright green
+    "ok": "1;38;2;0;255;90",
+    "error": "1;38;2;255;60;60",  # vivid red
+    "failed": "1;38;2;255;60;60",
+    "loading": "1;38;2;255;150;30",  # orange
+    "warning": f"1;{_TRUE_WHITE}",
+    "info": f"1;{_TRUE_WHITE}",
+    "debug": f"1;{_TRUE_WHITE}",
 }
 
-#: (status, message) pool — the "crazy code" the flood prints.
+#: (status, message) pool — the "crazy code" the flood prints. Short silly
+#: lines are mixed with longer kernel-log style lines (paths, addresses,
+#: timestamps) so the stream looks like a real boot console.
 _LINES: list[tuple[str, str]] = [
     ("loading", "system DeepTerminal"),
     ("loading", "loading kernel modules"),
@@ -156,13 +162,57 @@ _LINES: list[tuple[str, str]] = [
     ("failed", "hiding vegetables under the rice"),
     ("ok", "socks match today (miracles happen)"),
     ("ok", "backpack packed without drama"),
+    # -- longer, kernel-log style lines (paths, addresses, timestamps) -----
+    ("loading", "kernel: [ 0.184207] mount: /dev/nvme0n1p2 on /home type ext4 (rw,relatime,discard=async,errors=remount-ro)"),
+    ("loading", "systemd[1]: Started Load Kernel Modules - 147 modules, 3 of them are still asleep."),
+    ("loading", "kernel: [ 1.204881] input: AT Translated Set 2 keyboard as /devices/platform/i8042/serio0/input/input3"),
+    ("loading", "kernel: [ 0.847112] random: crng init done - trust the chaos"),
+    ("loading", "mount: /dev/sdb1 on /mnt/homework type vfat (ro,noexec,guilt=on)"),
+    ("loading", "kernel: [ 2.446078] usb 3-2: new high-speed USB device number 7 using xhci_hcd"),
+    ("loading", "systemd[1]: Starting Network Name Resolution... resolving the mystery of the lost sock."),
+    ("loading", "kernel: [ 0.112004] Booting Linux on physical CPU 0x0000000000000000 (built different)"),
+    ("loading", "kernel: [ 1.887774] EXT4-fs (nvme0n1p2): mounted filesystem with ordered data mode. Snacks queued."),
+    ("successful", "systemd[1]: Reached target Multi-User System - 42 units loaded, 0 failed, 1 pizza consumed."),
+    ("successful", "kernel: [ 0.052917] pci 0000:00:02.0: vgaarb: VGA device found (rev 09, 16384 MB prefetchable, RGB lights included)"),
+    ("successful", "pizza.service: Consumed 812ms CPU time, 3 slices of pepperoni, 0 regrets."),
+    ("successful", "NetworkManager[633]: device (wlan0): state change: disconnected -> connected (reason 'snacks nearby')"),
+    ("successful", "systemd-logind[487]: New session c2 of user legend - seat seat0, pizza level: high"),
+    ("successful", "kernel: [ 3.110592] raid6: using algorithm avx2x4 - homework protection level: maximum"),
+    ("successful", "kernel: [ 0.498101] Console: colour dummy device 80x25 - looks cooler than it sounds"),
+    ("error", "kernel: [ 3.718823] alarm-clock.service: Failed with result 'ignored' - user requested 5 more minutes."),
+    ("error", "hwclock.service: Cannot access the Hardware Clock via any known method. (Tried the attic, the garage and under the bed.)"),
+    ("error", "systemd[1]: homework.service: Main process exited, code=exited, status=1/FAILURE (reason: too boring)"),
+    ("error", "pcieport 0000:00:1c.4: AER: Corrected error received: 0000:00:1c.4 (blame the little brother)"),
+    ("error", "kernel: [ 4.020135] EXT4-fs error (device nvme0n1p2): snack_daemon: committed 999 blocks of chocolate"),
+    ("error", "systemd[1]: Failed to start Deep Sleep Service - someone pressed every key at once."),
+    ("warning", "kernel: [ 9.401777] thermal thermal_zone0: critical temperature reached (100 C), shutting down game.exe"),
+    ("warning", "kernel: [ 12.003331] CPU1: Package temperature above threshold, cpu clock throttled (game.exe is hungry)"),
+    ("warning", "systemd[1]: /proc/sys/vm/dirty_ratio: value '100' out of range - the room is dirty enough already"),
+    ("warning", "NetworkManager[633]: wlan0: wifi signal weak - moving the router closer to the snacks"),
+    ("warning", "kernel: [ 7.771905] watchdog: watchdog0: watchdog did not stop! (the dog is still watching you)"),
+    ("info", "systemd-journald[214]: Journal started - 1.2M entries collected since you woke up."),
+    ("info", "systemd[1]: Listening on D-Bus System Message Bus Socket (id=@e32b0f0c)"),
+    ("info", "kernel: [ 0.000000] Linux version 6.9.0-awesome (azen@fun) (gcc 13.2.0) #1 SMP PREEMPT_DYNAMIC"),
+    ("info", "systemd[1]: Detected architecture x86-64 (with extra RGB)"),
+    ("info", "kernel: [ 0.607834] Spectre V2: Enabling mitigation: waking up is scary enough already"),
+    ("debug", "kernel: [ 1.554209] psmouse serio1: elantech: assuming hardware version 4 - the mouse is plotting something"),
+    ("debug", "usb 3-2: new high-speed USB device number 7 using xhci_hcd (vendor 0xfeed, product 0xbeef)"),
+    ("ok", "fsck.ext4: /dev/sda1: clean, 524288/26214400 files, 0 problems, homework still missing"),
 ]
 
 
 def random_line() -> str:
-    """One coloured nonsense log line, e.g. ``[successful]eating a pizza``."""
+    """One coloured log line: ``[successful] eating a pizza``.
+
+    Only four colours are used (red / green / orange tags, bright white
+    message) and the line ends with a full reset so shell output afterwards
+    keeps its normal colours.
+    """
     status, message = random.choice(_LINES)
-    return f"\x1b[{_STATUS_COLORS[status]}m[{status}]\x1b[0m{message}"
+    return (
+        f"\x1b[{_STATUS_COLORS[status]}m[{status}]\x1b[0m"
+        f"\x1b[{_TRUE_WHITE}m{message}\x1b[0m"
+    )
 
 
 # -- config file ---------------------------------------------------------
