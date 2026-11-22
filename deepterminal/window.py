@@ -5,8 +5,8 @@ from __future__ import annotations
 import platform
 from importlib.metadata import version as package_version
 
-from PyQt6.QtCore import QEvent, QPoint, Qt
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtCore import QEvent, QPoint, Qt, QTimer
+from PyQt6.QtGui import QCursor, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QInputDialog,
     QLabel,
@@ -24,6 +24,9 @@ from .settings_dialog import SettingsDialog
 from .shells import ShellError, resolve_profile
 from .view import TerminalView
 
+#: Screen-edge strip (px) that reveals the tab bar in immersive mode.
+IMMERSIVE_EDGE = 6
+
 
 class MainWindow(QMainWindow):
     """DeepTerminal main window."""
@@ -37,6 +40,8 @@ class MainWindow(QMainWindow):
         self._find_dialog: FindDialog | None = None
         self._renamed_tabs: set[TerminalView] = set()
         self._hover_tab: int = -1
+        self._immersive = False
+        self._hot_views: set[TerminalView] = set()
 
         self.setWindowTitle(APP_NAME)
         self.resize(1080, 700)
@@ -47,6 +52,7 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._install_shortcuts()
         self._apply_chrome()
+        self._build_immersive_hint()
         if self.new_tab() is None and self.default_shell != "bash":
             # Do not leave an empty window when the saved shell disappears.
             self.default_shell = "bash"
@@ -172,6 +178,29 @@ class MainWindow(QMainWindow):
             """
         )
 
+    def _build_immersive_hint(self) -> None:
+        """Small toast shown once when immersive mode starts."""
+        self._immersive_hint = QLabel(self)
+        self._immersive_hint.setObjectName("immersiveHint")
+        self._immersive_hint.setText("Immersive mode · F11 to exit · move the mouse to the top edge for tabs")
+        self._immersive_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._immersive_hint.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._immersive_hint.setStyleSheet(
+            "QLabel#immersiveHint {"
+            " background: rgba(0, 0, 0, 185);"
+            " color: #e8e8e8;"
+            " border: 1px solid #3a3a3a;"
+            " border-radius: 16px;"
+            " padding: 8px 20px;"
+            " font-size: 13px;"
+            "}"
+        )
+        self._immersive_hint.hide()
+        self._hint_timer = QTimer(self)
+        self._hint_timer.setSingleShot(True)
+        self._hint_timer.setInterval(3000)
+        self._hint_timer.timeout.connect(self._immersive_hint.hide)
+
     def _install_shortcuts(self) -> None:
         QShortcut(QKeySequence("Ctrl+Shift+T"), self, activated=self.new_tab)
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close_current_tab)
@@ -179,7 +208,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+Tab"), self, activated=lambda: self.cycle_tab(-1))
         QShortcut(QKeySequence("Ctrl+,"), self, activated=self.open_settings)
         QShortcut(QKeySequence("Ctrl+Shift+F"), self, activated=self.open_find)
-        QShortcut(QKeySequence("F11"), self, activated=self.toggle_fullscreen)
+        QShortcut(QKeySequence("F11"), self, activated=self.toggle_immersive)
+        QShortcut(QKeySequence("Shift+F11"), self, activated=self.toggle_fullscreen)
 
     # -- tabs ------------------------------------------------------------
     def new_tab(self, shell_key: str | None = None) -> TerminalView | None:
@@ -193,6 +223,8 @@ class MainWindow(QMainWindow):
         view.restart_requested.connect(lambda widget=view: widget.restart())
         view.find_requested.connect(self.open_find)
         view.size_changed.connect(self._update_status)
+        view.installEventFilter(self)
+        self._hot_views.add(view)
         index = self.tabs.addTab(view, profile.label)
         self.tabs.setTabToolTip(index, f"{profile.label} — {' '.join(profile.argv)}")
         self._install_close_button(view)
@@ -228,6 +260,8 @@ class MainWindow(QMainWindow):
         view = self.tabs.widget(index)
         if isinstance(view, TerminalView):
             view.shutdown()
+            view.removeEventFilter(self)
+            self._hot_views.discard(view)
             self._renamed_tabs.discard(view)
         self.tabs.removeTab(index)
         if isinstance(view, TerminalView):
@@ -325,10 +359,14 @@ class MainWindow(QMainWindow):
                 if index != self._hover_tab:
                     self._hover_tab = index
                     self._refresh_close_buttons()
+                if self._immersive:
+                    self._hide_tab_bar_when_left(event)
             elif event_type == QEvent.Type.Leave:
                 if self._hover_tab != -1:
                     self._hover_tab = -1
                     self._refresh_close_buttons()
+                if self._immersive:
+                    self._hide_tab_bar_when_left()
             elif event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
                 index = self.tabs.tabBar().tabAt(event.position().toPoint())
                 if index >= 0:
@@ -339,9 +377,16 @@ class MainWindow(QMainWindow):
                 if index != -1:
                     self._rename_tab(index)
                     return True
+        elif obj in self._hot_views:
+            if event.type() == QEvent.Type.MouseMove and self._immersive:
+                self._reveal_tab_bar_at_top_edge(event)
         return super().eventFilter(obj, event)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt naming
+        if self._immersive:
+            # Restore normal geometry first so closing never saves the
+            # fullscreen size as the next launch's window size.
+            self._leave_immersive()
         if self._find_dialog is not None:
             self._find_dialog.close()
             self._find_dialog = None
@@ -384,10 +429,74 @@ class MainWindow(QMainWindow):
             self._update_status()
 
     def toggle_fullscreen(self) -> None:
+        """Shift+F11: plain fullscreen, keeping the tab bar and frame."""
+        if self._immersive:
+            return  # F11 handles immersive mode; Shift+F11 only toggles plain fullscreen.
         if self.isFullScreen():
             self.showNormal()
         else:
             self.showFullScreen()
+
+    # -- immersive mode --------------------------------------------------
+    def toggle_immersive(self) -> None:
+        """F11: frameless fullscreen with no tab bar and no status bar."""
+        if self._immersive:
+            self._leave_immersive()
+        else:
+            self._enter_immersive()
+
+    def _enter_immersive(self) -> None:
+        self._immersive = True
+        self.statusBar().setVisible(False)
+        self._set_tab_bar_visible(False)
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.FramelessWindowHint)
+        self.showFullScreen()
+        self._show_immersive_hint()
+
+    def _leave_immersive(self) -> None:
+        self._immersive = False
+        self._immersive_hint.hide()
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.FramelessWindowHint)
+        self.showNormal()
+        self._set_tab_bar_visible(True)
+        self.statusBar().setVisible(True)
+
+    def _set_tab_bar_visible(self, visible: bool) -> None:
+        bar = self.tabs.tabBar()
+        if bar.isVisible() != visible:
+            bar.setVisible(visible)
+
+    def _show_immersive_hint(self) -> None:
+        self._immersive_hint.adjustSize()
+        x = max(0, (self.width() - self._immersive_hint.width()) // 2)
+        self._immersive_hint.move(x, 14)
+        self._immersive_hint.show()
+        self._immersive_hint.raise_()
+        self._hint_timer.start()
+
+    def _reveal_tab_bar_at_top_edge(self, event) -> None:
+        """While immersive, touching the very top edge reveals the tab bar."""
+        if self.tabs.tabBar().isVisible():
+            return
+        top = self.frameGeometry().top()
+        y = int(event.globalPosition().y())
+        if top <= y <= top + IMMERSIVE_EDGE:
+            self._set_tab_bar_visible(True)
+
+    def _hide_tab_bar_when_left(self, event=None) -> None:
+        """Hide the tab bar again once the pointer moves below it."""
+        bar = self.tabs.tabBar()
+        if not bar.isVisible():
+            return
+        top = self.frameGeometry().top()
+        if event is not None:
+            # Prefer the event's own global position (reliable on Wayland);
+            # QCursor.pos() is the fallback for plain Leave events.
+            y = int(event.globalPosition().y())
+        else:
+            y = QCursor.pos().y()
+        if y > top + bar.height() + 10:
+            self._set_tab_bar_visible(False)
 
     def _shell_versions(self) -> list[tuple[str, str]]:
         """Detect installed shell versions: [(label, version)]."""
@@ -486,7 +595,8 @@ class MainWindow(QMainWindow):
             f"Python {platform.python_version()} · Qt {QT_VERSION_STR} · PyQt {PYQT_VERSION_STR} · pyte {pyte_version}<br>"
             f"Kernel {platform.release()} · {self.tabs.count()} session(s)<br><br>"
             "Shortcuts: Ctrl+Shift+T new tab, Ctrl+W close, Ctrl+Tab switch, "
-            "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, F11 fullscreen.<br>"
+            "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, "
+            "F11 immersive fullscreen, Shift+F11 plain fullscreen.<br>"
             "Tips: middle-click a tab to close it, double-click to rename it, "
             "and style the prompt in Settings → Prompt.<br>"
             "Type <b>DTinfo</b> in any tab to see this info right in the terminal."

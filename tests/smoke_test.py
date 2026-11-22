@@ -456,6 +456,22 @@ def test_codeout_e2e(app: QApplication) -> None:
         app.processEvents()
 
 
+def test_themes() -> None:
+    from deepterminal.config import get_theme, theme_names
+
+    check("pure black theme is offered", "pureblack" in theme_names(), str(theme_names()))
+    theme = get_theme("pureblack")
+    check(
+        "pure black has a #000000 background",
+        theme["bg"] == "#000000" and theme["window_bg"] == "#000000",
+        str({k: theme[k] for k in ("bg", "window_bg", "tab_bg")}),
+    )
+    check("pure black keeps the dark text colours", theme["fg"] == "#d6d6d6", str(theme["fg"]))
+    check("dark theme keeps its grey background", get_theme("dark")["bg"] == "#121212")
+    check("light theme is untouched", get_theme("light")["bg"] == "#ffffff")
+    check("unknown themes fall back to dark", get_theme("neon")["bg"] == get_theme("dark")["bg"])
+
+
 def test_window(app: QApplication) -> None:
     with tempfile.TemporaryDirectory() as directory:
         config = Config(QSettings(str(Path(directory) / "settings.ini"), QSettings.Format.IniFormat))
@@ -486,8 +502,26 @@ def test_window(app: QApplication) -> None:
         values = dialog.values()
         check("settings expose the prompt style", values["prompt_style"] == "arrow", str(values["prompt_style"]))
         check("settings keep the legacy prompt format", values["prompt"] == "DT ({path})::: ", str(values["prompt"]))
+        theme_labels = [dialog.theme_combo.itemText(i) for i in range(dialog.theme_combo.count())]
+        check("settings offer the Pure Black theme", "Pure Black" in theme_labels, str(theme_labels))
         dialog.close()
         app.processEvents()
+
+        window.toggle_immersive()
+        app.processEvents()
+        check("immersive mode is fullscreen", window.isFullScreen())
+        check(
+            "immersive mode is frameless",
+            bool(window.windowFlags() & Qt.WindowType.FramelessWindowHint),
+        )
+        check("immersive mode hides the tab bar", not window.tabs.tabBar().isVisible())
+        check("immersive mode hides the status bar", not window.statusBar().isVisible())
+        check("immersive hint is shown", window._immersive_hint.isVisible())
+        window.toggle_immersive()
+        app.processEvents()
+        check("immersive mode exits cleanly", not window.isFullScreen())
+        check("tab bar comes back", window.tabs.tabBar().isVisible() and window.statusBar().isVisible())
+        check("frame comes back", not bool(window.windowFlags() & Qt.WindowType.FramelessWindowHint))
 
         window.close()
         app.processEvents()
@@ -522,6 +556,7 @@ def main() -> int:
     test_codeout()
     test_codeout_e2e(app)
     test_window(app)
+    test_themes()
     test_about_banner()
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s): {', '.join(FAILURES)}")

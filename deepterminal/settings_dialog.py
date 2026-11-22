@@ -31,6 +31,9 @@ from .shells import shell_choices
 #: (page id, sidebar label) in display order.
 PAGE_ORDER = (("general", "General"), ("appearance", "Appearance"), ("prompt", "Prompt"))
 
+#: Nicer names for themes whose key is not just a capitalised word.
+THEME_LABELS = {"pureblack": "Pure Black"}
+
 
 def monospace_families() -> list[str]:
     """Return installed fixed-pitch families for the font chooser."""
@@ -149,7 +152,7 @@ class SettingsDialog(QDialog):
         def build(form: QFormLayout) -> None:
             self.theme_combo = QComboBox()
             for name in theme_names():
-                self.theme_combo.addItem(name.capitalize(), name)
+                self.theme_combo.addItem(THEME_LABELS.get(name, name.capitalize()), name)
             self.theme_combo.setCurrentIndex(max(0, self.theme_combo.findData(self.config.get_str("theme"))))
             form.addRow("Theme:", self.theme_combo)
 

@@ -47,6 +47,13 @@ flood never piles up. Defaults live in `~/.config/AzenDev/DeepTerminal/codeout-c
 
 `codeout stop` ends the show, `codeout conf` prints the config path.
 
+Version 2.6.6 adds **immersive mode** — press **`F11`** for a frameless,
+fullscreen terminal with no tab bar and no status bar (move the mouse to the
+very top edge to reveal the tabs, press `F11` again to exit; `Shift+F11`
+keeps the old plain fullscreen). The Appearance page also gains a
+**Pure Black** theme: the same dark palette with a true `#000000` background
+instead of the dark grey.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features
@@ -58,6 +65,9 @@ flood never piles up. Defaults live in `~/.config/AzenDev/DeepTerminal/codeout-c
   16/256/true-colour SGR, bold, italic, underline, reverse, strikethrough.
 - **Tabs**: per-tab shell, hover close buttons, middle-click to close,
   double-click to rename, restart, duplicate, drag to reorder.
+- **Immersive mode** (`F11`): frameless fullscreen with the tab bar and status
+  bar hidden; the tab bar slides back in when the mouse touches the top edge.
+  `Shift+F11` is plain fullscreen with the chrome kept.
   Tabs follow OSC 0/2 titles set by the shell (for example the current directory).
 - **Styled prompts**: presets with truecolour icons (❯ ➜ 🐳), custom symbol,
   symbol/path colours, optional `username@host`, powerline segments, and a live
@@ -146,7 +156,8 @@ system-boot flood of coloured log lines (`codeout 3s super`), configurable via
 | `Ctrl+Insert` / `Shift+Insert` | Copy / paste (terminal convention) |
 | `Ctrl+Shift+F` | Find in terminal |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset |
-| `F11` | Full screen |
+| `F11` | Immersive fullscreen (frameless, no tab bar) |
+| `Shift+F11` | Plain fullscreen |
 | `Ctrl+,` | Settings |
 
 Everything else is sent to the shell unchanged (`Ctrl+C`, `Ctrl+Z`, `Ctrl+D`,
@@ -163,7 +174,7 @@ The dialog is organised in three pages: **General**, **Appearance** and **Prompt
 | Custom command | Executable and arguments for the custom shell choice. |
 | Startup command | Typed into every new tab after the shell starts. |
 | Start directory | Working directory for new shells (default: home). |
-| Theme | `dark` or `light` palettes for the whole window and terminal. |
+| Theme | `dark`, `light` or `pure black` palette for the whole window and terminal. |
 | Terminal font | Fixed-pitch family and point size. |
 | Scrollback | Number of lines kept above the screen. |
 | Cursor blink | Blinking block cursor. |

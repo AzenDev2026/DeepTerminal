@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSettings
 ORG = "AzenDev"
 APP = "DeepTerminal"
 APP_NAME = "DeepTerminal"
-APP_VERSION = "2.6.5"
+APP_VERSION = "2.6.6"
 
 #: Selectable default shells. "custom" means the command in ``custom_shell``.
 SHELL_CHOICES = ("pwsh", "bash", "custom")
@@ -121,6 +121,19 @@ THEMES: dict[str, dict[str, object]] = {
             "brightwhite": "#8c959f",
         },
     },
+}
+
+
+#: Pure-black variant of the dark theme: same colours, but the terminal and
+#: window background is #000000 instead of the dark grey. Picked in
+#: Settings → Appearance → Theme.
+THEMES["pureblack"] = {
+    **THEMES["dark"],
+    "window_bg": "#000000",
+    "bg": "#000000",
+    "tab_bg": "#000000",
+    "tab_active_bg": "#000000",
+    "border": "#1f1f1f",
 }
 
 
