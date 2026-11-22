@@ -10,7 +10,7 @@ from PyQt6.QtCore import QSettings
 ORG = "AzenDev"
 APP = "DeepTerminal"
 APP_NAME = "DeepTerminal"
-APP_VERSION = "2.6.1"
+APP_VERSION = "2.6.5"
 
 #: Selectable default shells. "custom" means the command in ``custom_shell``.
 SHELL_CHOICES = ("pwsh", "bash", "custom")

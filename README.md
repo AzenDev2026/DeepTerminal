@@ -30,6 +30,23 @@ line-aligned instead of drifting right), runs **`clear` automatically** each
 time a Bash or PowerShell tab opens (toggle in Settings → General), and keeps
 the prompt in place instead of sinking when the window grows.
 
+Version 2.6.5 adds **`codeout`**, a purely-for-fun command that floods the
+terminal with a fake "system boot" log (`[successful]eating a pizza`,
+`[error]dont want to go to school`, `[loading]system DeepTerminal`, …), each
+status in its own colour. Type `codeout` in a Bash or PowerShell tab; tune it
+with `codeout 3s`, `codeout fast`, `codeout super`, or both at once
+(`codeout 3s super`). Every 60 lines the oldest 30 are cleaned up so the
+flood never piles up. Defaults live in `~/.config/AzenDev/DeepTerminal/codeout-conf.txt`:
+
+```
+#code output config
+#just for fun
+[time]:3s
+[speed]:super
+```
+
+`codeout stop` ends the show, `codeout conf` prints the config path.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features
@@ -64,6 +81,9 @@ the prompt in place instead of sinking when the window grows.
   shell, startup command, theme (dark/light), monospace family and size,
   scrollback, cursor blinking, start directory, prompt style designer.
 - **Command line**: `--shell`, `--command`, `--working-dir`, `--version`.
+- **The `codeout` easter egg**: type `codeout` in a Bash or PowerShell tab for
+  a colourful fake kernel-boot flood — tune time and speed on the command line
+  or in `codeout-conf.txt`.
 - **Installer** with desktop entry, icon and `--uninstall`.
 
 ## Requirements
@@ -111,7 +131,9 @@ own prompt untouched, and custom shells always keep their own prompt. Beta 1
 settings (`prompt`, `theme`, `startup_cmd`) are preserved, and the old `terinfo`
 command is back as **`DTinfo`**: type it in a Bash or PowerShell tab to print
 the About DeepTerminal info box in the terminal. The dialog itself lives in
-**＋ → About DeepTerminal**.
+**＋ → About DeepTerminal**. For pure fun there is also **`codeout`**: a fake
+system-boot flood of coloured log lines (`codeout 3s super`), configurable via
+`~/.config/AzenDev/DeepTerminal/codeout-conf.txt`.
 
 ## Keyboard shortcuts
 

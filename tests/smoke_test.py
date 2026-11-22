@@ -342,6 +342,120 @@ def test_view_extras(app: QApplication) -> None:
         app.processEvents()
 
 
+def test_codeout() -> None:
+    import re as re_module
+
+    from deepterminal.codeout import (
+        TRIGGER_RE,
+        build_options,
+        config_path,
+        parse_duration,
+        parse_speed,
+        random_line,
+        read_config,
+    )
+
+    check("duration parses seconds", parse_duration("3s") == 3.0, str(parse_duration("3s")))
+    check("duration parses ms", parse_duration("500ms") == 0.5, str(parse_duration("500ms")))
+    check("bare number means seconds", parse_duration("7") == 7.0, str(parse_duration("7")))
+    check("durations are clamped", parse_duration("999s") == 60.0 and parse_duration("0.1s") == 0.5)
+    check("bad duration rejected", parse_duration("abc") is None)
+    check("speed words parse", parse_speed("SUPER") == "super" and parse_speed("banana") is None)
+
+    options = build_options([], {"time": "2s", "speed": "fast"})
+    check("config defaults apply", options.duration_s == 2.0 and options.speed == "fast", str(options))
+    options = build_options(["5s", "super"], {"time": "2s", "speed": "fast"})
+    check("arguments override config", options.duration_s == 5.0 and options.speed == "super", str(options))
+    options = build_options([], {"time": "nope", "speed": "nope"})
+    check("built-in fallback defaults", options.duration_s == 3.0 and options.speed == "normal", str(options))
+    check("super is the fastest", build_options(["super"], {}).interval_ms < options.interval_ms)
+
+    line = random_line()
+    check(
+        "random line is a coloured status tag",
+        re_module.match(r"^\x1b\[1;\d+m\[[a-z]+\]\x1b\[0m", line) is not None,
+        repr(line),
+    )
+
+    match = TRIGGER_RE.search(b"noise\x1b]663;codeout 3s fast\x07more")
+    check("trigger marker parses args", match is not None and match.group(1) == b" 3s fast")
+    match = TRIGGER_RE.search(b"\x1b]663;codeout\x07")
+    check("trigger without args", match is not None and match.group(1) == b"")
+
+    screen, stream = make_emulator(30, 6, 200)
+    for index in range(20):
+        stream.feed(f"flood-{index:02d}\r\n".encode())
+    # 20 lines in a 6-row screen: the final \r\n leaves the cursor on a blank
+    # bottom row, so the first 15 lines land in scrollback.
+    check("flood fills scrollback", len(screen.history.top) == 15, str(len(screen.history.top)))
+    check("delete takes scrollback first", screen.delete_top_lines(5) == 5 and len(screen.history.top) == 10)
+    check("delete spills into screen rows", screen.delete_top_lines(12) == 12)
+    text = "".join(screen.text_of_row(row).rstrip() for row in range(screen.lines))
+    check("oldest flood lines are gone", "flood-00" not in text and "flood-16" not in text, text)
+    check("newest flood lines survive", "flood-17" in text and "flood-19" in text, text)
+
+    with tempfile.TemporaryDirectory() as directory:
+        previous = os.environ.get("XDG_CONFIG_HOME")
+        os.environ["XDG_CONFIG_HOME"] = str(Path(directory) / "config")
+        try:
+            path = config_path()
+            check("config path lives under XDG_CONFIG_HOME", "codeout-conf.txt" in str(path), str(path))
+            conf = read_config()
+            check(
+                "config file is created with defaults",
+                conf.get("time") == "3s" and conf.get("speed") == "super",
+                str(conf),
+            )
+            path.write_text("#code output config\n#just for fun\n[time]:7s\n[speed]:fast\n", encoding="utf-8")
+            conf = read_config()
+            check("config edits are picked up", conf.get("time") == "7s" and conf.get("speed") == "fast", str(conf))
+        finally:
+            if previous is None:
+                os.environ.pop("XDG_CONFIG_HOME", None)
+            else:
+                os.environ["XDG_CONFIG_HOME"] = previous
+
+
+def test_codeout_e2e(app: QApplication) -> None:
+    import re as re_module
+
+    with tempfile.TemporaryDirectory() as directory:
+        config = Config(QSettings(str(Path(directory) / "settings.ini"), QSettings.Format.IniFormat))
+        config.set("font_size", 10)
+        config.set("auto_clear", False)
+        config.sync()
+        view = TerminalView(config, bash_profile(config))
+        view.resize(900, 560)
+        view.show()
+        check("shell is up for codeout", wait_until(app, lambda: "❯" in view.screen_text(), 10), view.screen_text())
+
+        view._write_input(b"codeout 1s slow\r")
+        check("codeout flood starts", wait_until(app, lambda: view._codeout_runner.is_running(), 4))
+        pattern = re_module.compile(r"\[(successful|error|loading|warning|info|debug|ok|failed)\]")
+        check(
+            "flood prints coloured status tags",
+            wait_until(app, lambda: pattern.search(view.screen_text()) is not None, 4),
+            view.screen_text(),
+        )
+        check("flood stops after its time", wait_until(app, lambda: not view._codeout_runner.is_running(), 6))
+
+        view._write_input(b"codeout help\r")
+        check(
+            "codeout help prints usage",
+            wait_until(app, lambda: "fake system-boot show" in view.screen_text(), 4),
+            view.screen_text(),
+        )
+
+        view._write_input(b"codeout 3s super\r")
+        check("codeout super starts", wait_until(app, lambda: view._codeout_runner.is_running(), 4))
+        view._write_input(b"\x03")
+        check("ctrl+c stops the flood", wait_until(app, lambda: not view._codeout_runner.is_running(), 3))
+
+        view.shutdown()
+        view.close()
+        app.processEvents()
+
+
 def test_window(app: QApplication) -> None:
     with tempfile.TemporaryDirectory() as directory:
         config = Config(QSettings(str(Path(directory) / "settings.ini"), QSettings.Format.IniFormat))
@@ -405,6 +519,8 @@ def main() -> int:
     test_prompt_style()
     test_pty(app)
     test_view_extras(app)
+    test_codeout()
+    test_codeout_e2e(app)
     test_window(app)
     test_about_banner()
     if FAILURES:

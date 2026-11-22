@@ -393,6 +393,39 @@ class TerminalScreen(HistoryScreen):
     def text_of_row(self, row: int) -> str:
         return "".join(self.buffer[row][column].data for column in range(self.columns))
 
+    def delete_top_lines(self, count: int) -> int:
+        """Drop the oldest ``count`` lines of the document.
+
+        Scrollback lines go first; if more are needed, the top rows of the
+        screen are deleted and the rest shifted up with blank rows at the
+        bottom (the cursor lands bottom-left). Used by the fun ``codeout``
+        flood so its output never piles up forever. Returns the number of
+        lines actually removed.
+        """
+        count = max(0, int(count))
+        if count == 0:
+            return 0
+        removed = 0
+        history = self.history.top
+        take = min(count, len(history))
+        for _ in range(take):
+            history.popleft()
+        removed += take
+        remaining = count - take
+        rows = self.lines
+        if remaining > 0 and rows > 1:
+            shift = min(remaining, rows - 1)
+            for y in range(shift, rows):
+                self.buffer[y - shift] = self.buffer[y]
+            for y in range(rows - shift, rows):
+                self.buffer.pop(y, None)
+            removed += shift
+            self.cursor.x = 0
+            self.cursor.y = rows - 1
+            self.cursor.hidden = False
+            self.dirty = set(range(rows))
+        return removed
+
 
 def make_emulator(columns: int, lines: int, history: int) -> tuple[TerminalScreen, pyte.ByteStream]:
     """Create a screen plus the byte stream that feeds it."""

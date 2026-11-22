@@ -95,6 +95,6 @@ def about_text() -> str:
         "  " + python_row,
         "  " + pyqt_row,
         "",
-        "  Type DTinfo to see this again",
+        "  DTinfo for info · codeout for fun",
     ]
     return _box(lines) + "\n"

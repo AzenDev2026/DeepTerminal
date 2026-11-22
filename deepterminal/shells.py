@@ -8,6 +8,7 @@ import shutil
 from dataclasses import dataclass
 
 from .about import about_text
+from .codeout import bash_codeout_setup, pwsh_codeout_setup
 from .config import APP_VERSION, Config
 from .promptstyle import bash_prompt_command, pwsh_prompt_function
 
@@ -55,6 +56,7 @@ def pwsh_profile(config: Config) -> ShellProfile:
     parts = [
         prompt_function,
         _pwsh_dtinfo_setup(about_text()),
+        pwsh_codeout_setup(),
         "$env:PAGER = 'cat'",
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
         "$OutputEncoding = [System.Text.Encoding]::UTF8",
@@ -77,7 +79,7 @@ def bash_profile(config: Config) -> ShellProfile:
         # Run the PS1 setup, define DTinfo and re-enable echo as a single
         # command so bash prints its prompt only once instead of once per line.
         setup = setup.rstrip("\n") + "; "
-    setup += _bash_dtinfo_setup(about_text()) + "; stty echo"
+    setup += _bash_dtinfo_setup(about_text()) + "; " + bash_codeout_setup() + "; stty echo"
     if config.get_bool("auto_clear"):
         # Clear the screen automatically on open (fall back to raw ANSI if
         # `clear` is not installed), then show the About banner.

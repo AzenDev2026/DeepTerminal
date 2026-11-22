@@ -22,6 +22,16 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QMenu, QScrollBar, QWidget
 
 from .about import about_text
+from .codeout import (
+    CLEAN_AT,
+    CLEAN_LINES,
+    HELP_TEXT,
+    TRIGGER_RE,
+    CodeoutRunner,
+    build_options,
+    ensure_config_file,
+    read_config,
+)
 from .config import Config, default_font_family, get_theme
 from .emulator import TerminalScreen, make_emulator
 from .ptyproc import PtyProcess
@@ -232,6 +242,13 @@ class TerminalView(QWidget):
         self.emulator.on_bell = self._on_bell
         self.emulator.on_reply = self._on_emulator_reply
 
+        # codeout: the fun fake "system boot" flood, driven client-side.
+        self._codeout_runner = CodeoutRunner(self)
+        self._codeout_runner.line_ready.connect(self._on_codeout_line)
+        self._codeout_runner.finished.connect(self._on_codeout_finished)
+        self._codeout_tail = b""
+        self._codeout_lines = 0
+
         self._apply_font()
         self._apply_theme()
         self._start_shell()
@@ -316,12 +333,15 @@ class TerminalView(QWidget):
         self._selection = None
         self._last_title = ""
         self._exited = False
+        self._codeout_tail = b""
+        self._codeout_lines = 0
         self.title_changed.emit(self.profile.label)
         self._start_shell()
         self._sync_scrollbar()
         self.update()
 
     def shutdown(self) -> None:
+        self._codeout_runner.stop()
         self._blink_timer.stop()
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
@@ -344,6 +364,7 @@ class TerminalView(QWidget):
     # -- process signals -------------------------------------------------
     def _on_output(self, data: bytes) -> None:
         self._shell_ready = True
+        self._scan_codeout(data)
         try:
             self.stream.feed(data)
         except Exception:  # pragma: no cover - malformed sequences must not kill the tab
@@ -392,6 +413,67 @@ class TerminalView(QWidget):
         self._message(f"\r\n[DeepTerminal] {text}\r\n")
         self.title_changed.emit(f"{self.profile.label} (error)")
         self.update()
+
+    # -- codeout (the fun fake boot log) --------------------------------
+    def _scan_codeout(self, data: bytes) -> None:
+        """Catch the invisible OSC marker the shell-side ``codeout`` prints.
+
+        The marker usually arrives in a single chunk, but a small tail is
+        kept in case a write splits it in the middle.
+        """
+        self._codeout_tail += data
+        for match in TRIGGER_RE.finditer(self._codeout_tail):
+            args = match.group(1).decode("utf-8", "replace").strip()
+            self._run_codeout(args)
+        self._codeout_tail = self._codeout_tail[-64:]
+
+    def _run_codeout(self, args: str) -> None:
+        tokens = args.split()
+        first = tokens[0].lower() if tokens else ""
+        if first in ("stop", "off"):
+            self._stop_codeout()
+            return
+        if first in ("conf", "config"):
+            self._stop_codeout()
+            self._show_codeout_conf()
+            return
+        if first in ("help", "--help", "-h"):
+            self._stop_codeout()
+            self._message(HELP_TEXT)
+            return
+        options = build_options(tokens)
+        self._codeout_lines = 0
+        self._codeout_runner.start(options)
+
+    def _show_codeout_conf(self) -> None:
+        path = ensure_config_file()
+        conf = read_config()
+        self._message(
+            "\r\ncodeout config: " + str(path) + "\r\n"
+            "  [time]: " + conf.get("time", "3s") + "\r\n"
+            "  [speed]: " + conf.get("speed", "super") + "\r\n"
+            "Edit this file to change the defaults.\r\n"
+        )
+
+    def _on_codeout_line(self, text: str) -> None:
+        self._codeout_lines += 1
+        try:
+            self.stream.feed(b"\r\n" + text.encode("utf-8", "replace"))
+        except Exception:  # pragma: no cover - malformed data must not kill the tab
+            pass
+        if self._codeout_lines >= CLEAN_AT:
+            # 60 lines printed -> clean up the oldest 30 so the flood stays tidy.
+            self._codeout_lines = 0
+            self.emulator.delete_top_lines(CLEAN_LINES)
+            self._scroll_offset = min(self._scroll_offset, self._max_offset())
+        self._sync_scrollbar()
+        self.update()
+
+    def _on_codeout_finished(self) -> None:
+        self.update()
+
+    def _stop_codeout(self) -> None:
+        self._codeout_runner.stop()
 
     # -- title / scrollbar ----------------------------------------------
     def _sync_title(self) -> None:
@@ -743,6 +825,10 @@ class TerminalView(QWidget):
     def _write_input(self, data: bytes) -> None:
         if self.pty is None or data == b"":
             return
+        if data == b"\x03" and self._codeout_runner.is_running():
+            # Ctrl+C also stops the codeout flood (the shell still gets it,
+            # so the prompt returns as usual).
+            self._stop_codeout()
         if self._scroll_offset > 0:
             self._scroll_offset = 0
             self._sync_scrollbar()
