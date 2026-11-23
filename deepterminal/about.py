@@ -1,10 +1,10 @@
 """In-terminal About info.
 
 The shell-side ``DTinfo`` command prints only an invisible OSC marker
-(:data:`DTINFO_MARKER`). The terminal view catches the marker and shows the
-real **DeepTerminal icon image** (``deepterm.png``) as a floating banner,
-with the plain text info block below it — so DTinfo now shows a picture
-instead of the old character-art box.
+(:data:`DTINFO_MARKER`). The terminal view catches the marker and renders the
+DeepTerminal icon **inside the terminal** as chafa-style coloured half-block
+art (see :mod:`deepterminal.art`), with the version info beside it —
+sysfetch/fastfetch layout, no floating overlay window.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import re
 import shutil
 import subprocess
 
+from .art import compose, icon_art_rows
 from .config import APP_NAME, APP_VERSION
 
 #: Invisible OSC marker the shell-side ``DTinfo`` function prints. pyte
@@ -71,10 +72,10 @@ def _versions_line() -> str:
     )
 
 
-def about_text() -> str:
-    """Plain-text About block shown under the DTinfo icon image."""
+def about_lines() -> list[str]:
+    """The info column shown next to the icon art."""
     python_row, pyqt_row = _versions_line()
-    lines = [
+    return [
         f"{APP_NAME} {APP_VERSION} — a native Qt terminal",
         "for PowerShell 7, Bash and any shell",
         "",
@@ -82,7 +83,13 @@ def about_text() -> str:
         "  Bash             " + _bash_version(),
         "  " + python_row,
         "  " + pyqt_row,
+        "  Kernel           " + platform.release(),
         "",
         "  DTinfo for info · codeout for fun",
     ]
-    return "\n".join(lines) + "\n"
+
+
+def about_text(icon_path=None, background: str = "#121212") -> str:
+    """DTinfo output: chafa-style icon art on the left, info on the right."""
+    art = icon_art_rows(icon_path, background=background) if icon_path else []
+    return compose(art, about_lines()) + "\n"

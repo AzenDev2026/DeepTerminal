@@ -18,9 +18,8 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
-    QPixmap,
 )
-from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QScrollBar, QWidget
+from PyQt6.QtWidgets import QApplication, QMenu, QScrollBar, QWidget
 
 from .about import DTINFO_RE, about_text
 from .codeout import (
@@ -47,7 +46,6 @@ WHEEL_LINES = 3
 CORNER_RADIUS = 10.0
 AUTO_FONT_SETTLE_MS = 120
 PROMPT_INJECT_DELAY_MS = 50
-DTINFO_SHOW_MS = 4500
 
 _CTRL = Qt.KeyboardModifier.ControlModifier
 _SHIFT = Qt.KeyboardModifier.ShiftModifier
@@ -251,18 +249,9 @@ class TerminalView(QWidget):
         self._codeout_tail = b""
         self._codeout_lines = 0
 
-        # DTinfo: the floating icon banner that replaces the old character
-        # box — a real image of the DeepTerminal icon, shown for a few
-        # seconds above the info text whenever DTinfo runs.
+        # DTinfo: the icon is drawn *inside* the terminal as chafa-style
+        # coloured art (see deepterminal/art.py) — no floating overlay.
         self._dtinfo_tail = b""
-        self._dtinfo_label = QLabel(self)
-        self._dtinfo_label.setObjectName("dtinfoIcon")
-        self._dtinfo_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self._dtinfo_label.hide()
-        self._dtinfo_timer = QTimer(self)
-        self._dtinfo_timer.setSingleShot(True)
-        self._dtinfo_timer.setInterval(DTINFO_SHOW_MS)
-        self._dtinfo_timer.timeout.connect(self._hide_dtinfo_icon)
 
         self._apply_font()
         self._apply_theme()
@@ -350,7 +339,6 @@ class TerminalView(QWidget):
         self._codeout_tail = b""
         self._codeout_lines = 0
         self._dtinfo_tail = b""
-        self._hide_dtinfo_icon()
         self.title_changed.emit(self.profile.label)
         self._start_shell()
         self._sync_scrollbar()
@@ -362,8 +350,6 @@ class TerminalView(QWidget):
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
         self._resize_timer.stop()
-        self._dtinfo_timer.stop()
-        self._hide_dtinfo_icon()
         startup_timer = getattr(self, "_startup_timer", None)
         if startup_timer is not None:
             startup_timer.stop()
@@ -519,49 +505,15 @@ class TerminalView(QWidget):
             self._dtinfo_tail = self._dtinfo_tail[-32:]
 
     def _run_dtinfo(self) -> None:
-        """Render DTinfo client-side: the info text plus the icon image."""
+        """Render DTinfo client-side: chafa-style icon art + version info."""
+        icon_path = program_dir() / "deepterm.png"
+        text = about_text(
+            icon_path if icon_path.exists() else None,
+            background=str(self.theme["bg"]),
+        )
         # Client-side drawing bypasses the tty, so every line ending must
         # carry its own \r or the cursor column drifts.
-        self._message(about_text().replace("\n", "\r\n") + "\r\n")
-        self._show_dtinfo_icon()
-
-    def _show_dtinfo_icon(self) -> None:
-        """Float the real DeepTerminal icon over the view for a few seconds."""
-        icon_path = program_dir() / "deepterm.png"
-        if not icon_path.exists():
-            return
-        size = int(max(96, min(224, self.width() * 0.24, self.height() * 0.55)))
-        pixmap = QPixmap(str(icon_path)).scaled(
-            size,
-            size,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        label = self._dtinfo_label
-        padding = max(8, size // 10)
-        label.setPixmap(pixmap)
-        label.setStyleSheet(
-            "QLabel#dtinfoIcon {"
-            " background: rgba(0, 0, 0, 165);"
-            " border: 1px solid #3a3a3a;"
-            f" border-radius: {size // 5}px;"
-            f" padding: {padding}px;"
-            "}"
-        )
-        label.adjustSize()
-        self._position_dtinfo_icon()
-        label.show()
-        label.raise_()
-        self._dtinfo_timer.start()
-
-    def _position_dtinfo_icon(self) -> None:
-        label = self._dtinfo_label
-        x = max(0, (self.width() - label.width()) // 2)
-        label.move(x, PAD_Y + 4)
-
-    def _hide_dtinfo_icon(self) -> None:
-        self._dtinfo_timer.stop()
-        self._dtinfo_label.hide()
+        self._message(text.replace("\n", "\r\n") + "\r\n")
 
     # -- title / scrollbar ----------------------------------------------
     def _sync_title(self) -> None:
@@ -691,8 +643,6 @@ class TerminalView(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._scrollbar.setGeometry(self.width() - SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, self.height())
-        if self._dtinfo_label.isVisible():
-            self._position_dtinfo_icon()
         # 拖拽窗口期间 resize 事件很密集，稍等 120ms 再重排网格 + 自适应字体
         self._resize_timer.start()
         super().resizeEvent(event)
@@ -919,8 +869,6 @@ class TerminalView(QWidget):
             # Ctrl+C also stops the codeout flood (the shell still gets it,
             # so the prompt returns as usual).
             self._stop_codeout()
-        if self._dtinfo_label.isVisible():
-            self._hide_dtinfo_icon()
         if self._scroll_offset > 0:
             self._scroll_offset = 0
             self._sync_scrollbar()

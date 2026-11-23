@@ -62,10 +62,15 @@ Version 2.7.0 adds **split view** and replaces the DTinfo character box with
 a real picture. Split the window like Konsole: **`Ctrl+Shift+E`** puts a
 second terminal **left/right**, **`Ctrl+Shift+O`** puts one **top/bottom** —
 each pane keeps its own tabs, and closing a pane's last tab removes it.
-**`DTinfo`** no longer prints ASCII art: the shell sends an invisible marker
-and DeepTerminal floats the actual **DeepTerminal icon image** over the
-terminal with the info text below it, on every new tab and whenever you type
-`DTinfo`.
+**`DTinfo`** no longer prints character art: the shell sends an invisible
+marker and DeepTerminal draws the **DeepTerminal icon inline in the terminal**
+as chafa-style coloured half-block art (truecolour ``▀`` cells, contrast-lifted)
+with the version info beside it — a fastfetch/sysfetch layout, not a floating
+window. It appears on every new tab and whenever you type `DTinfo`.
+
+Version 2.7.4 renders the DTinfo icon as **inline terminal art** (chafa-style
+half blocks) instead of a floating image banner, and adds the kernel line to
+the info column.
 
 Version 2.7.2 fixes **colourless styled prompts**: when DeepTerminal is
 launched from an environment that sets `NO_COLOR` (some launchers and CI-like

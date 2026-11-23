@@ -287,12 +287,18 @@ def test_view_extras(app: QApplication) -> None:
         check("Ctrl+C interrupts the foreground job", wait_until(app, lambda: "after-int" in view.screen_text(), 5), view.screen_text())
 
         view._write_input(b"DTinfo\r")
-        check("DTinfo floats the icon image", wait_until(app, lambda: view._dtinfo_label.isVisible(), 5))
         check(
-            "DTinfo prints the info text",
-            wait_until(app, lambda: "DeepTerminal" in view.screen_text() and "Bash" in view.screen_text(), 5),
+            "DTinfo renders inline icon art (chafa-style half blocks)",
+            wait_until(app, lambda: "\u2580" in view.screen_text() and "DeepTerminal" in view.screen_text(), 6),
             view.screen_text(),
         )
+        check(
+            "DTinfo prints the info text",
+            wait_until(app, lambda: "PowerShell Core" in view.screen_text() and "Bash" in view.screen_text(), 6),
+            view.screen_text(),
+        )
+        art_cells = [cell for line in view.emulator.buffer.values() for cell in line.values() if cell.data == "▀"]
+        check("DTinfo art uses truecolour cells", any(cell.fg not in (None, "default") for cell in art_cells), str(len(art_cells)))
 
         view._write_input(b"seq 1 200\r")
         check("long output arrives", wait_until(app, lambda: "200" in view.screen_text()), view.screen_text())
@@ -598,19 +604,21 @@ def test_window(app: QApplication) -> None:
 
 def test_about_banner() -> None:
     from deepterminal.about import DTINFO_RE, about_text
-    from deepterminal.config import APP_VERSION
+    from deepterminal.config import APP_VERSION, program_dir
 
     # Client-side drawing bypasses the tty, so \n must become \r\n or the
     # cursor column drifts.
-    text = about_text().replace("\n", "\r\n") + "\r\n"
-    screen, stream = make_emulator(80, 24, 100)
+    text = about_text(program_dir() / "deepterm.png", "#121212").replace("\n", "\r\n") + "\r\n"
+    screen, stream = make_emulator(110, 20, 100)
     stream.feed(text.encode("utf-8"))
     rows = [screen.text_of_row(y).rstrip() for y in range(screen.lines)]
     nonblank = [row for row in rows if row.strip()]
-    check("banner starts with the app name", nonblank[0].startswith("DeepTerminal"), nonblank[0])
-    check("banner shows the app version", APP_VERSION in text, text)
     joined = "\n".join(nonblank)
+    check("banner shows the app name", "DeepTerminal" in nonblank[0], nonblank[0])
+    check("banner shows the app version", APP_VERSION in text, text)
     check("banner lists the shells", "PowerShell Core" in joined and "Bash" in joined, joined)
+    check("banner keeps the fastfetch-style layout", "Kernel" in joined and "DTinfo for info" in joined, joined)
+    check("banner draws the icon as inline art", "\u2580" in joined, nonblank[0])
     check("banner has no character-art box anymore", "╭" not in joined and "╮" not in joined, nonblank[1:3])
     check(
         "DTinfo marker is matched",
