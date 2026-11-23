@@ -67,6 +67,13 @@ and DeepTerminal floats the actual **DeepTerminal icon image** over the
 terminal with the info text below it, on every new tab and whenever you type
 `DTinfo`.
 
+Version 2.7.2 fixes **colourless styled prompts**: when DeepTerminal is
+launched from an environment that sets `NO_COLOR` (some launchers and CI-like
+contexts do), PowerShell 7.2+ switches `$PSStyle.OutputRendering` to
+`PlainText` and strips every ANSI sequence, so the powerline prompt rendered
+as plain white text. The shell now starts with those colour-suppressing
+hints removed, so truecolour prompts look as designed.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features

@@ -144,6 +144,30 @@ def test_prompt_style() -> None:
             repr(ps1),
         )
 
+        # Render the real PS1 and check the truecolour attributes survive.
+        screen, stream = make_emulator(60, 2, 100)
+        expanded = (
+            ps1.replace(r"\[", "").replace(r"\]", "")
+            .replace(r"\033", "\x1b")
+            .replace(r"\u", "u").replace(r"\h", "h").replace(r"\w", "/home")
+        )
+        stream.feed(expanded.encode())
+        row = "".join(cell.data for cell in screen.buffer[0].values())
+        path_col = row.find("/home")
+        check(
+            "powerline path segment keeps its background colour",
+            path_col >= 0 and screen.buffer[0][path_col].bg == "4c9aff",
+            str(screen.buffer[0][path_col] if path_col >= 0 else "path not found"),
+        )
+        arrow_col = row.find("▸")
+        if arrow_col >= 0:
+            cell = screen.buffer[0][arrow_col]
+            check(
+                "powerline arrow stays visible (fg != bg)",
+                (cell.fg or "default") != (cell.bg or "default"),
+                f"fg={cell.fg} bg={cell.bg}",
+            )
+
         config.set("prompt_style", "custom")
         config.set("prompt", "DT ({path})::: ")
         ps1 = promptstyle.bash_ps1(config)
@@ -598,11 +622,34 @@ def test_about_banner() -> None:
     )
 
 
+def test_environment() -> None:
+    """The shell must not inherit colour-suppressing hints (NO_COLOR …).
+
+    PowerShell 7.2+ switches $PSStyle.OutputRendering to PlainText when
+    NO_COLOR is set, which silently strips every SGR sequence from the
+    prompt — the powerline prompt then renders colourless.
+    """
+    from deepterminal.shells import build_environment
+
+    os.environ["NO_COLOR"] = "1"
+    os.environ["CLICOLOR"] = "0"
+    try:
+        env = build_environment()
+    finally:
+        os.environ.pop("NO_COLOR", None)
+        os.environ.pop("CLICOLOR", None)
+    check("NO_COLOR is dropped for the shell", "NO_COLOR" not in env, str(env.get("NO_COLOR")))
+    check("CLICOLOR is dropped for the shell", "CLICOLOR" not in env, str(env.get("CLICOLOR")))
+    check("shell gets a 256-colour TERM", env.get("TERM") == "xterm-256color", str(env.get("TERM")))
+    check("shell gets truecolour COLORTERM", env.get("COLORTERM") == "truecolor", str(env.get("COLORTERM")))
+
+
 def main() -> int:
     app = QApplication(sys.argv[:1])
     test_emulator()
     test_key_encoding()
     test_prompt_style()
+    test_environment()
     test_pty(app)
     test_view_extras(app)
     test_codeout()

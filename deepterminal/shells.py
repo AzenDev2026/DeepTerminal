@@ -137,6 +137,13 @@ def build_environment() -> dict[str, str]:
     env["COLORTERM"] = "truecolor"
     env["TERM_PROGRAM"] = "DeepTerminal"
     env["TERM_PROGRAM_VERSION"] = APP_VERSION
+    # Colour-suppressing hints inherited from the launcher are poison for a
+    # truecolour terminal: PowerShell (7.2+) switches $PSStyle.OutputRendering
+    # to PlainText when NO_COLOR is set and silently strips every ANSI
+    # sequence from the prompt — styled prompts then render colourless.
+    # The terminal itself decides about colour, so drop the hints here.
+    for name in ("NO_COLOR", "CLICOLOR"):
+        env.pop(name, None)
     lang = env.get("LANG", "")
     if not lang.upper().endswith(("UTF-8", "UTF8")):
         env["LANG"] = "C.UTF-8"
