@@ -507,9 +507,27 @@ class TerminalView(QWidget):
     def _run_dtinfo(self) -> None:
         """Render DTinfo client-side: chafa-style icon art + version info."""
         icon_path = program_dir() / "deepterm.png"
+        # Pick an art size that fits the current grid: the composed DTinfo
+        # block is art + gap + ~42 info columns, so narrow split panes get a
+        # smaller icon instead of wrapped, garbled rows.
+        # The launcher table may still be at its default 80 columns while the
+        # shell starts, so settle the grid against the current widget size
+        # first and derive the usable width from the widget itself.
+        if self.isVisible() and self.width() > 0:
+            self._resize_grid()
+        usable = self.width() - SCROLLBAR_WIDTH - 2 * PAD_X
+        columns = int(usable // self._cell_w) if usable > 0 and self._cell_w > 0 else self.emulator.columns
+        if columns >= 88:
+            art_w, art_h = 28, 14
+        elif columns >= 64:
+            art_w, art_h = 20, 10
+        else:
+            art_w, art_h = 0, 0  # too narrow for side-by-side art
         text = about_text(
-            icon_path if icon_path.exists() else None,
+            icon_path if icon_path.exists() and art_w else None,
             background=str(self.theme["bg"]),
+            width=art_w or None,
+            height=art_h or None,
         )
         # Client-side drawing bypasses the tty, so every line ending must
         # carry its own \r or the cursor column drifts.

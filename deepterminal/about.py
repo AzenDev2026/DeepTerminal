@@ -14,7 +14,7 @@ import re
 import shutil
 import subprocess
 
-from .art import compose, icon_art_rows
+from .art import ART_HEIGHT, ART_WIDTH, compose, icon_art_rows
 from .config import APP_NAME, APP_VERSION
 
 #: Invisible OSC marker the shell-side ``DTinfo`` function prints. pyte
@@ -89,7 +89,21 @@ def about_lines() -> list[str]:
     ]
 
 
-def about_text(icon_path=None, background: str = "#121212") -> str:
+def about_text(
+    icon_path=None,
+    background: str = "#121212",
+    width: int | None = None,
+    height: int | None = None,
+) -> str:
     """DTinfo output: chafa-style icon art on the left, info on the right."""
-    art = icon_art_rows(icon_path, background=background) if icon_path else []
+    art = (
+        icon_art_rows(
+            icon_path,
+            width=width if width is not None else ART_WIDTH,
+            height=height if height is not None else ART_HEIGHT,
+            background=background,
+        )
+        if icon_path
+        else []
+    )
     return compose(art, about_lines()) + "\n"

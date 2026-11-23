@@ -2,7 +2,7 @@
 """Render DeepTerminal's main window offscreen and save a screenshot.
 
 Run with:  python tests/make_screenshot.py [output.png]
-Used to regenerate docs/screenshot.png after UI changes.
+Used to regenerate docs/pic/screenshot.png after UI changes.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ from deepterminal.window import MainWindow  # noqa: E402
 
 
 def main() -> int:
-    output = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "docs" / "screenshot.png"
+    output = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent / "docs" / "pic" / "screenshot.png"
     app = QApplication(sys.argv[:1])
     with tempfile.TemporaryDirectory() as directory:
         config = Config(QSettings(str(Path(directory) / "settings.ini"), QSettings.Format.IniFormat))

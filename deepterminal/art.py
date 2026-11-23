@@ -54,6 +54,41 @@ def icon_art_rows(
         Qt.AspectRatioMode.KeepAspectRatio,
         Qt.TransformationMode.SmoothTransformation,
     )
+    # Lift the icon's own contrast (chafa-style): the icon is mostly grey and
+    # would otherwise read as a dim smudge at this size. The stretch uses the
+    # icon's own luminance percentiles, so it works on dark *and* light
+    # terminal backgrounds instead of clamping everything to the theme colour.
+    if gain != 1.0:
+        luminance: list[int] = []
+        for y in range(scaled.height()):
+            for x in range(scaled.width()):
+                color = scaled.pixelColor(x, y)
+                if color.alpha() == 0:
+                    continue
+                luminance.append(int(0.299 * color.red() + 0.587 * color.green() + 0.114 * color.blue()))
+        if luminance:
+            luminance.sort()
+            low = luminance[max(0, len(luminance) // 20)]
+            high = luminance[min(len(luminance) - 1, len(luminance) * 19 // 20)]
+            span = max(1, high - low)
+
+            def stretch(channel: int) -> int:
+                return max(0, min(255, int((channel - low) / span * 255)))
+
+            stretched = QImage(scaled.width(), scaled.height(), QImage.Format.Format_ARGB32)
+            stretched.fill(0)
+            for y in range(scaled.height()):
+                for x in range(scaled.width()):
+                    color = scaled.pixelColor(x, y)
+                    if color.alpha() == 0:
+                        continue
+                    stretched.setPixelColor(
+                        x,
+                        y,
+                        QColor(stretch(color.red()), stretch(color.green()), stretch(color.blue()), color.alpha()),
+                    )
+            scaled = stretched
+
     painter = QPainter(canvas)
     painter.drawImage(
         (pixel_w - scaled.width()) // 2,
@@ -61,18 +96,6 @@ def icon_art_rows(
         scaled,
     )
     painter.end()
-
-    # Lift the contrast around the background colour (chafa-style): the icon
-    # is mostly grey, which would otherwise read as a dim smudge at this size.
-    if gain != 1.0:
-        bg = QColor(background)
-        for y in range(pixel_h):
-            for x in range(pixel_w):
-                color = canvas.pixelColor(x, y)
-                r = max(0, min(255, int(bg.red() + (color.red() - bg.red()) * gain)))
-                g = max(0, min(255, int(bg.green() + (color.green() - bg.green()) * gain)))
-                b = max(0, min(255, int(bg.blue() + (color.blue() - bg.blue()) * gain)))
-                canvas.setPixelColor(x, y, QColor(r, g, b))
 
     rows: list[str] = []
     for row in range(height):
