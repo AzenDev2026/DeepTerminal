@@ -189,15 +189,23 @@ def _powerline_parts(style: PromptStyle, escape) -> list[str]:
     show_user = style.mode in ("full", "user_only") and style.user_host_bg
     show_path = style.mode in ("full", "path_only") and style.path_bg
 
+    # A tip arrow that ends a segment must also return the background to the
+    # terminal default (SGR 49), otherwise the terminal keeps the segment's
+    # background and draws the arrow in its own colour — invisible.
+    def tip(fg: str, next_bg: str = "") -> str:
+        sequence = sgr(fg=fg, bg=next_bg)
+        if not next_bg:
+            sequence += "\x1b[49m"
+        return sequence
+
     if show_user:
         seqs.append((sgr(fg=style.user_host_fg, bg=style.user_host_bg), "{USERHOST} "))
         if style.arrow:
-            next_bg = style.path_bg if show_path else ""
-            seqs.append((sgr(fg=style.user_host_bg, bg=next_bg), PL_ARROW))
+            seqs.append((tip(style.user_host_bg, style.path_bg if show_path else ""), PL_ARROW))
     if show_path:
         seqs.append((sgr(fg=style.path_fg, bg=style.path_bg), "{PATH} "))
         if style.arrow:
-            seqs.append((sgr(fg=style.path_bg), PL_ARROW))
+            seqs.append((tip(style.path_bg), PL_ARROW))
         seqs.append((sgr(fg=style.symbol_on_bg, bg=style.path_bg), style.symbol))
     else:
         seqs.append((sgr(fg=style.symbol_hex), style.symbol))

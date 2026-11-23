@@ -138,6 +138,11 @@ def test_prompt_style() -> None:
         ps1 = promptstyle.bash_ps1(config)
         check("powerline PS1 has a background colour", "48;2;" in ps1, repr(ps1))
         check("powerline PS1 shows the host", r"\u@\h" in ps1, repr(ps1))
+        check(
+            "powerline tip arrow resets the background (visible, not blue-on-blue)",
+            "\\033[49m" in ps1,
+            repr(ps1),
+        )
 
         config.set("prompt_style", "custom")
         config.set("prompt", "DT ({path})::: ")
