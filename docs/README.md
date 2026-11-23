@@ -1,12 +1,13 @@
-# DeepTerminal — 版本历史与更新记录
+# DeepTerminal — Release History
 
-这里记录 DeepTerminal 的每一个版本和改动。主页 / main README:
-[../README.md](../README.md)
+Every release and what changed in it. The main project page lives in
+[../README.md](../README.md).
 
-## 目录
+## Contents
 
 - [2.7.x](#27x)
   - [2.7.4](#274--2026-11-23)
+  - [2.7.3](#273--2026-11-23)
   - [2.7.2](#272--2026-11-23)
   - [2.7.0](#270--2026-11-23)
 - [2.6.x](#26x)
@@ -18,58 +19,75 @@
 - [2.5.x](#25x)
   - [2.5.1](#251)
 - [2.1](#21)
-- [Beta 2 和 Beta 1](#beta-2--beta-1)
-- [截图](#截图)
+- [Beta 2 and Beta 1](#beta-2-and-beta-1)
+- [Screenshots](#screenshots)
 
 ## 2.7.x
 
 ### 2.7.4 — 2026-11-23
 
-- **DTinfo 改为 chafa 风格终端内嵌字符画**：图标 `deepterm.png` 用半块字符
-  （`▀`，上半像素做前景色、下半像素做背景色、真彩色）直接"画"进终端，
-  对比度按图标自身亮度增强，深色/浅色主题都清晰；信息列在右侧
-  （fastfetch / sysfetch 布局），并新增 Kernel 行。不再使用悬浮图片横幅。
-- 新增 `art.py` 与对应的渲染测试。
+- **DTinfo now draws the icon as chafa-style inline terminal art**: the app
+  icon (`deepterm.png`) is rendered straight into the terminal with half-block
+  characters (`▀`, upper pixel as foreground, lower pixel as background,
+  truecolour). Contrast is lifted from the icon's own luminance range, so it
+  stays readable on dark and light themes. The version info sits on the right
+  (fastfetch/sysfetch layout) and gains a Kernel line. The floating image
+  banner is gone.
+- New `art.py` module and rendering tests.
+- The art adapts to the window width: 28×14 cells on wide tabs, 20×10 on
+  medium ones, and info-only in very narrow split panes.
+
+### 2.7.3 — 2026-11-23
+
+- Fixed **DTinfo printing twice**: the marker scanner matched the oscillator
+  marker but never consumed the matched bytes, so the next output chunk
+  matched it again. Matched bytes are now consumed (same fix for `codeout`),
+  with regression tests.
 
 ### 2.7.2 — 2026-11-23
 
-- 修复 **powerline 提示符变白、没有颜色**：如果启动环境里带有 `NO_COLOR`
-  （部分启动器和 CI 类环境会设置），PowerShell 7.2+ 会把
-  `$PSStyle.OutputRendering` 切成 `PlainText`，静默剥离提示符里所有 ANSI
-  序列。现在启动 shell 时会清除 `NO_COLOR` / `CLICOLOR`，真彩色提示符恢复
-  正常。
+- Fixed **colourless powerline prompts**: when the launch environment contains
+  `NO_COLOR` (some launchers and CI-like contexts set it), PowerShell 7.2+
+  switches `$PSStyle.OutputRendering` to `PlainText` and silently strips every
+  ANSI sequence from the prompt. DeepTerminal now removes `NO_COLOR` /
+  `CLICOLOR` for the shell it starts, so truecolour prompts look as designed.
 
 ### 2.7.0 — 2026-11-23
 
-- 新增 **split view**：`Ctrl+Shift+E` 左右分屏，`Ctrl+Shift+O` 上下分屏
-  （Konsole 风格）。每个分屏有自己的一套标签页；关掉某个分屏最后一个标签页
-  时该分屏自动收起。
-- **DTinfo 不再是字符画信息框**：shell 侧只打印隐藏的 OSC 标记，
-  DeepTerminal 客户端渲染图标和版本信息。
+- New **split view**: `Ctrl+Shift+E` splits left/right, `Ctrl+Shift+O` splits
+  top/bottom (Konsole style). Every pane keeps its own tabs; closing a pane's
+  last tab removes the pane.
+- **DTinfo is no longer a character box**: the shell side only prints an
+  invisible OSC marker and DeepTerminal renders the icon and version info
+  client-side.
 
 ## 2.6.x
 
 ### 2.6.7 — 2026-11-22
 
-- `codeout` 视觉打磨：标签只用四种颜色——错误是鲜红、成功是亮绿、加载是橙色、
-  其余是亮白；混入更长的内核日志风格行（路径、时间戳、十六进制地址），
-  看起来更像真实启动日志。
+- `codeout` polish: tags use only four colours — vivid red errors, bright green
+  successes, orange loading, bright white for everything else — and the stream
+  mixes in longer kernel-log style lines (paths, timestamps, hex addresses) so
+  it reads like a real boot console.
 
 ### 2.6.6 — 2026-11-22
 
-- 新增 **沉浸模式**：按 `F11` 进入无边框全屏，隐藏标签栏和状态栏；
-  鼠标移到屏幕最上方边缘会滑出标签栏，再按 `F11` 退出。`Shift+F11` 保留
-  旧的普通全屏。
-- 外观设置新增 **Pure Black** 主题：同样的深色调色板，但背景是纯 `#000000`。
+- New **immersive mode**: press `F11` for a frameless fullscreen terminal with
+  no tab bar and no status bar. Move the mouse to the very top edge to reveal
+  the tabs; `F11` again exits. `Shift+F11` keeps the old plain fullscreen.
+- The Appearance page gains a **Pure Black** theme: the same dark palette with a
+  true `#000000` background.
 
 ### 2.6.5 — 2026-11-21
 
-- 新增 **`codeout`** 彩蛋命令：在 Bash 或 PowerShell 标签页里输入 `codeout`，
-  屏幕会刷出一片假的"系统启动"日志（`[successful]eating a pizza`、
-  `[error]dont want to go to school`、`[loading]system DeepTerminal` ……）。
-- 可以调参：`codeout 3s`、`codeout fast`、`codeout super`、`codeout 3s super`。
-  每 60 行清理最旧的 30 行，刷屏不会堆积。默认值在
-  `~/.config/AzenDev/DeepTerminal/codeout-conf.txt`：
+- New **`codeout`** easter egg: type `codeout` in a Bash or PowerShell tab and
+  the screen floods with a fake "system boot" log
+  (`[successful]eating a pizza`, `[error]dont want to go to school`,
+  `[loading]system DeepTerminal`, …).
+- Tune it with `codeout 3s`, `codeout fast`, `codeout super`,
+  `codeout 3s super`. Every 60 lines the oldest 30 are cleaned up so the flood
+  never piles up. Defaults live in
+  `~/.config/AzenDev/DeepTerminal/codeout-conf.txt`:
 
   ```
   #code output config
@@ -78,47 +96,54 @@
   [speed]:super
   ```
 
-- `codeout stop` 停止刷屏，`codeout conf` 打印配置路径。
+- `codeout stop` ends the show, `codeout conf` prints the config path.
 
 ### 2.6.1 — 2026-11-21
 
-- 修复首次打开时横幅乱码（盒子现在逐行对齐，不会向右漂移）。
-- 每次打开 Bash / PowerShell 标签页自动执行 `clear`（可在设置里关闭）。
-- 窗口变大时提示符不再下沉。
+- Fixed the garbled banner on first open (it now renders line-aligned instead of
+  drifting right).
+- Runs `clear` automatically each time a Bash or PowerShell tab opens
+  (toggle in Settings → General).
+- The prompt stays in place instead of sinking when the window grows.
 
 ### 2.6.0 — 2026-11-20
 
-- 调整窗口大小时不再清屏（只重排）。
-- 新增 **自动字号**：字号随窗口面积缩放（6–32 pt，设置 → 外观里开关）。
-- 每个新标签页顶部显示 **About DeepTerminal** 横幅。
-- 恢复终端内 about 命令：在 Bash 或 PowerShell 标签页输入 **`DTinfo`**。
+- Resizing the window no longer clears the screen (reflow only).
+- New **auto font size**: the font scales with the window area (6–32 pt,
+  toggle in Settings → Appearance).
+- Every new tab shows an **About DeepTerminal** banner.
+- The in-terminal about command is back: type **`DTinfo`** in a Bash or
+  PowerShell tab.
 
 ## 2.5.x
 
 ### 2.5.1
 
-- 调整窗口大小时屏幕和滚动历史会重排，换行文本按新宽度重新折行而不是被裁掉。
+- Resizing the window re-wraps the screen and scrollback at the new width
+  instead of clipping text.
 
 ## 2.1
 
-- 现代化标签栏（强调色下划线、悬停关闭按钮、中键关闭）。
-- **可定制提示符**：预设（Arrow、Angled、Minimal、Powerline、Whale……）、
-  自定义符号和颜色、设置里的实时预览。提示符以真彩色 SGR 注入 Bash（`PS1`）
-  和 PowerShell（`prompt` 函数），注入的中设置行本身不会显示在屏幕上。
+- Modern tab strip (accent underline, hover close buttons, middle-click close).
+- **Customisable prompts**: presets (Arrow, Angled, Minimal, Powerline,
+  Whale, …), custom symbol and colours, live preview in Settings. The prompt is
+  injected into Bash (`PS1`) and PowerShell (a `prompt` function) with
+  truecolour SGR, and the injected setup line itself is never echoed.
 
-## Beta 2 和 Beta 1
+## Beta 2 and Beta 1
 
-Beta 2 重写了终端核心：Beta 1 用 `QProcess` 管道跑 `pwsh`；Beta 2 在真实的
-PTY 上跑 shell，并用 [pyte](https://github.com/selectel/pyte) 渲染屏幕，
-所以全屏程序、作业控制、颜色和窗口缩放都像普通终端一样工作。
+Beta 2 rewrote the terminal core: Beta 1 piped `pwsh` through `QProcess`;
+Beta 2 runs the shell on a real PTY and renders it with
+[pyte](https://github.com/selectel/pyte), so full-screen programs, job
+control, colours and window resizing behave like a normal terminal.
 
-## 截图
+## Screenshots
 
-| 深色主题 / DTinfo 字符画 | 分屏 | 浅色主题 |
+| Dark theme / DTinfo art | Split view | Light theme |
 |---|---|---|
 | ![dark](pic/screenshot.png) | ![split](pic/screenshot-split.png) | ![light](pic/screenshot-light.png) |
 
-图片都在 [`pic/`](pic/) 目录里；重新生成主页截图：
+Everything lives in [`pic/`](pic/). Regenerate the main screenshot with:
 
 ```bash
 QT_QPA_PLATFORM=offscreen .venv/bin/python tests/make_screenshot.py
