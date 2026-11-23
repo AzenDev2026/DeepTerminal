@@ -1,4 +1,4 @@
-"""Main window: tabbed terminals, settings, shortcuts."""
+"""Main window: tabbed terminals, settings, shortcuts, split view."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QSplitter,
     QTabBar,
     QTabWidget,
     QToolButton,
@@ -29,7 +30,13 @@ IMMERSIVE_EDGE = 6
 
 
 class MainWindow(QMainWindow):
-    """DeepTerminal main window."""
+    """DeepTerminal main window.
+
+    The central widget is a splitter tree of tab panes, Konsole style:
+    every pane is a QTabWidget holding terminal views. Split the focused
+    pane left/right (Ctrl+Shift+E) or top/bottom (Ctrl+Shift+O); closing
+    every tab of a pane removes the pane again.
+    """
 
     def __init__(self, config: Config | None = None, shell_key: str | None = None, working_dir: str | None = None) -> None:
         super().__init__()
@@ -40,8 +47,22 @@ class MainWindow(QMainWindow):
         self._find_dialog: FindDialog | None = None
         self._renamed_tabs: set[TerminalView] = set()
         self._hover_tab: int = -1
+        self._hover_bar: QTabBar | None = None
         self._immersive = False
         self._hot_views: set[TerminalView] = set()
+        self._focused_view: TerminalView | None = None
+
+        # Split view state: panes are QTabWidgets inside a QSplitter tree.
+        self._panes: list[QTabWidget] = []
+        self._view_pane: dict[TerminalView, QTabWidget] = {}
+        self._tab_bars: set[QTabBar] = set()
+        self._root_tabs = self._make_tab_widget(primary=True)
+        self._panes.append(self._root_tabs)
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.setObjectName("splitView")
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(2)
+        self.splitter.addWidget(self._root_tabs)
 
         self.setWindowTitle(APP_NAME)
         self.resize(1080, 700)
@@ -58,38 +79,112 @@ class MainWindow(QMainWindow):
             self.default_shell = "bash"
             self.new_tab("bash")
 
+    @property
+    def tabs(self) -> QTabWidget:
+        """Tab widget of the focused pane (compatibility accessor)."""
+        return self._active_tabs()
+
+    # -- panes -----------------------------------------------------------
+    def _active_tabs(self) -> QTabWidget:
+        """The pane that currently owns focus (or the first with a tab)."""
+        view = self._focused_view
+        if view is not None:
+            pane = self._view_pane.get(view)
+            if pane is not None and pane in self._panes:
+                return pane
+        for pane in self._panes:
+            if pane.count() > 0:
+                return pane
+        return self._panes[0] if self._panes else self._root_tabs
+
+    def _make_tab_widget(self, primary: bool = False) -> QTabWidget:
+        tabs = QTabWidget()
+        tabs.setTabsClosable(False)
+        tabs.setMovable(True)
+        tabs.setDocumentMode(True)
+        tabs.setUsesScrollButtons(True)
+        tabs.tabBar().setElideMode(Qt.TextElideMode.ElideMiddle)
+        tabs.tabCloseRequested.connect(lambda index, w=tabs: self.close_tab(index, w))
+        tabs.currentChanged.connect(lambda index, w=tabs: self._on_tab_changed(index, w))
+        tabs.tabBar().installEventFilter(self)
+        tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tabs.tabBar().customContextMenuRequested.connect(self._tab_menu)
+        self._tab_bars.add(tabs.tabBar())
+        if primary:
+            settings_button = QToolButton()
+            settings_button.setObjectName("tabTool")
+            settings_button.setText("⚙")
+            settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            settings_button.setToolTip("Settings (Ctrl+,)")
+            settings_button.clicked.connect(self.open_settings)
+            tabs.setCornerWidget(settings_button, Qt.Corner.TopLeftCorner)
+
+            self.new_button = QToolButton()
+            self.new_button.setObjectName("tabPlus")
+            self.new_button.setText("＋")
+            self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.new_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+            self.new_button.setToolTip("New tab (Ctrl+Shift+T)")
+            self.new_button.setMenu(self._build_new_menu())
+            tabs.setCornerWidget(self.new_button, Qt.Corner.TopRightCorner)
+        return tabs
+
+    def _remove_pane(self, tabs: QTabWidget) -> None:
+        """Remove an emptied pane, flattening now-single-child splitters."""
+        self._panes.remove(tabs)
+        self._tab_bars.discard(tabs.tabBar())
+        container = tabs.parentWidget()
+        if isinstance(container, QSplitter):
+            tabs.setParent(None)  # detaches it from the splitter
+            tabs.deleteLater()
+            if container.count() == 1 and container is not self.splitter:
+                lone = container.widget(0)
+                parent = container.parentWidget()
+                index = parent.indexOf(container)
+                lone.setParent(None)
+                parent.insertWidget(index, lone)
+                container.deleteLater()
+        else:
+            tabs.deleteLater()
+        # Move focus to a surviving terminal view.
+        for pane in self._panes:
+            view = pane.currentWidget()
+            if isinstance(view, TerminalView):
+                view.setFocus()
+                self._focused_view = view
+                break
+
+    def split_view(self, orientation: Qt.Orientation) -> None:
+        """Split the focused pane: a second terminal beside/below it."""
+        tabs = self._active_tabs()
+        new_tabs = self._make_tab_widget()
+        self._panes.append(new_tabs)
+        container = tabs.parentWidget() if isinstance(tabs.parentWidget(), QSplitter) else self.splitter
+        if container.count() == 1:
+            # A lone child can simply re-orient the existing splitter.
+            container.setOrientation(orientation)
+            container.addWidget(new_tabs)
+        elif container.orientation() == orientation:
+            container.addWidget(new_tabs)
+        else:
+            # The focused pane lives in a splitter of the other direction:
+            # nest a new splitter around it (Konsole behaviour).
+            index = container.indexOf(tabs)
+            nested = QSplitter(orientation)
+            nested.setObjectName("splitView")
+            nested.setChildrenCollapsible(False)
+            nested.setHandleWidth(2)
+            nested.addWidget(tabs)  # reparenting detaches it from container
+            nested.addWidget(new_tabs)
+            container.insertWidget(index, nested)
+            container.setStretchFactor(index, 1)
+        container.setSizes([1] * container.count())
+        self.new_tab(self.default_shell, new_tabs)
+        self._update_status()
+
     # -- ui --------------------------------------------------------------
     def _build_ui(self) -> None:
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(False)
-        self.tabs.setMovable(True)
-        self.tabs.setDocumentMode(True)
-        self.tabs.setUsesScrollButtons(True)
-        self.tabs.tabBar().setElideMode(Qt.TextElideMode.ElideMiddle)
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.currentChanged.connect(self._on_tab_changed)
-        self.tabs.tabBar().installEventFilter(self)
-        self.tabs.tabBar().setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.tabs.tabBar().customContextMenuRequested.connect(self._tab_menu)
-        self.setCentralWidget(self.tabs)
-
-        settings_button = QToolButton()
-        settings_button.setObjectName("tabTool")
-        settings_button.setText("⚙")
-        settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        settings_button.setToolTip("Settings (Ctrl+,)")
-        settings_button.clicked.connect(self.open_settings)
-        self.tabs.setCornerWidget(settings_button, Qt.Corner.TopLeftCorner)
-
-        self.new_button = QToolButton()
-        self.new_button.setObjectName("tabPlus")
-        self.new_button.setText("＋")
-        self.new_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.new_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
-        self.new_button.setToolTip("New tab (Ctrl+Shift+T)")
-        self.new_button.setMenu(self._build_new_menu())
-        self.tabs.setCornerWidget(self.new_button, Qt.Corner.TopRightCorner)
-
+        self.setCentralWidget(self.splitter)
         self.status_label = QLabel("")
         self.status_label.setObjectName("statusLabel")
         self.statusBar().addWidget(self.status_label)
@@ -100,6 +195,9 @@ class MainWindow(QMainWindow):
         menu.addAction("PowerShell 7", lambda: self.new_tab("pwsh"))
         menu.addAction("Bash", lambda: self.new_tab("bash"))
         menu.addAction("Custom command…", lambda: self.new_tab("custom"))
+        menu.addSeparator()
+        menu.addAction("Split view: left/right (Ctrl+Shift+E)", lambda: self.split_view(Qt.Orientation.Horizontal))
+        menu.addAction("Split view: top/bottom (Ctrl+Shift+O)", lambda: self.split_view(Qt.Orientation.Vertical))
         menu.addSeparator()
         menu.addAction("Settings…", self.open_settings)
         menu.addAction("About DeepTerminal", self.show_about)
@@ -159,6 +257,12 @@ class MainWindow(QMainWindow):
                 background: {theme['border']};
                 color: {theme['tab_active_fg']};
             }}
+            QSplitter#splitView::handle {{
+                background: {theme['border']};
+            }}
+            QSplitter#splitView::handle:hover, QSplitter#splitView::handle:pressed {{
+                background: {theme['accent']};
+            }}
             QStatusBar {{
                 background: {theme['window_bg']};
                 color: {theme['tab_fg']};
@@ -208,16 +312,19 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+Shift+Tab"), self, activated=lambda: self.cycle_tab(-1))
         QShortcut(QKeySequence("Ctrl+,"), self, activated=self.open_settings)
         QShortcut(QKeySequence("Ctrl+Shift+F"), self, activated=self.open_find)
+        QShortcut(QKeySequence("Ctrl+Shift+E"), self, activated=lambda: self.split_view(Qt.Orientation.Horizontal))
+        QShortcut(QKeySequence("Ctrl+Shift+O"), self, activated=lambda: self.split_view(Qt.Orientation.Vertical))
         QShortcut(QKeySequence("F11"), self, activated=self.toggle_immersive)
         QShortcut(QKeySequence("Shift+F11"), self, activated=self.toggle_fullscreen)
 
     # -- tabs ------------------------------------------------------------
-    def new_tab(self, shell_key: str | None = None) -> TerminalView | None:
+    def new_tab(self, shell_key: str | None = None, tabs: QTabWidget | None = None) -> TerminalView | None:
         try:
             profile = resolve_profile(self.config, shell_key or self.default_shell)
         except ShellError as error:
             QMessageBox.warning(self, "Shell unavailable", str(error))
             return None
+        target = tabs if tabs is not None else self._active_tabs()
         view = TerminalView(self.config, profile)
         view.title_changed.connect(lambda title, widget=view: self._on_title_changed(widget, title))
         view.restart_requested.connect(lambda widget=view: widget.restart())
@@ -225,11 +332,13 @@ class MainWindow(QMainWindow):
         view.size_changed.connect(self._update_status)
         view.installEventFilter(self)
         self._hot_views.add(view)
-        index = self.tabs.addTab(view, profile.label)
-        self.tabs.setTabToolTip(index, f"{profile.label} — {' '.join(profile.argv)}")
+        self._view_pane[view] = target
+        index = target.addTab(view, profile.label)
+        target.setTabToolTip(index, f"{profile.label} — {' '.join(profile.argv)}")
         self._install_close_button(view)
-        self.tabs.setCurrentIndex(index)
+        target.setCurrentIndex(index)
         view.setFocus()
+        self._focused_view = view
         self._update_status()
         return view
 
@@ -241,144 +350,182 @@ class MainWindow(QMainWindow):
         button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         button.setCursor(Qt.CursorShape.ArrowCursor)
         button.setToolTip("Close tab (middle-click also works)")
-        button.clicked.connect(lambda _checked=False, widget=view: self.close_tab(self.tabs.indexOf(widget)))
-        index = self.tabs.indexOf(view)
-        self.tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
+        tabs = self._view_pane.get(view)
+        if tabs is None:
+            return
+        button.clicked.connect(lambda _checked=False, widget=view: self.close_tab(tabs.indexOf(widget), tabs))
+        index = tabs.indexOf(view)
+        tabs.tabBar().setTabButton(index, QTabBar.ButtonPosition.RightSide, button)
         self._refresh_close_buttons()
 
     def _refresh_close_buttons(self) -> None:
         """Show the close button on the active tab and the hovered tab."""
-        bar = self.tabs.tabBar()
-        current = self.tabs.currentIndex()
-        for index in range(self.tabs.count()):
-            button = bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
-            if button is None:
-                continue
-            button.setVisible(index == current or index == self._hover_tab)
+        for tabs in self._panes:
+            bar = tabs.tabBar()
+            current = tabs.currentIndex()
+            hover = self._hover_tab if bar is self._hover_bar else -1
+            for index in range(tabs.count()):
+                button = bar.tabButton(index, QTabBar.ButtonPosition.RightSide)
+                if button is None:
+                    continue
+                button.setVisible(index == current or index == hover)
 
-    def close_tab(self, index: int) -> None:
-        view = self.tabs.widget(index)
+    def close_tab(self, index: int, tabs: QTabWidget | None = None) -> None:
+        if tabs is None:
+            tabs = self._active_tabs()
+        if index < 0 or index >= tabs.count():
+            return
+        view = tabs.widget(index)
         if isinstance(view, TerminalView):
             view.shutdown()
             view.removeEventFilter(self)
             self._hot_views.discard(view)
             self._renamed_tabs.discard(view)
-        self.tabs.removeTab(index)
+            self._view_pane.pop(view, None)
+            if self._focused_view is view:
+                self._focused_view = None
+        tabs.removeTab(index)
         if isinstance(view, TerminalView):
             view.deleteLater()
-        if self.tabs.count() == 0:
-            self.close()
+        if tabs.count() == 0:
+            if len(self._panes) == 1:
+                self.close()
+                return
+            self._remove_pane(tabs)
         self._update_status()
 
     def close_current_tab(self) -> None:
-        if self.tabs.count() > 0:
-            self.close_tab(self.tabs.currentIndex())
+        tabs = self._active_tabs()
+        if tabs.count() > 0:
+            self.close_tab(tabs.currentIndex(), tabs)
 
     def cycle_tab(self, delta: int) -> None:
-        count = self.tabs.count()
+        tabs = self._active_tabs()
+        count = tabs.count()
         if count > 1:
-            self.tabs.setCurrentIndex((self.tabs.currentIndex() + delta) % count)
+            tabs.setCurrentIndex((tabs.currentIndex() + delta) % count)
 
-    def _rename_tab(self, index: int) -> None:
-        current = self.tabs.tabText(index)
+    def _rename_tab(self, index: int, tabs: QTabWidget | None = None) -> None:
+        tabs = tabs if tabs is not None else self._active_tabs()
+        current = tabs.tabText(index)
         name, accepted = QInputDialog.getText(self, "Rename Tab", "Tab name:", text=current)
         if accepted and name.strip() != "":
-            self.tabs.setTabText(index, name.strip())
-            view = self.tabs.widget(index)
+            tabs.setTabText(index, name.strip())
+            view = tabs.widget(index)
             if isinstance(view, TerminalView):
                 self._renamed_tabs.add(view)
 
     def _tab_menu(self, point) -> None:
-        index = self.tabs.tabBar().tabAt(point)
+        bar = self.sender()
+        tabs = bar.parentWidget() if isinstance(bar, QTabBar) else self._active_tabs()
+        index = bar.tabAt(point)
         if index < 0:
             return
         menu = QMenu(self)
-        menu.addAction("Rename…", lambda: self._rename_tab(index))
-        view = self.tabs.widget(index)
+        menu.addAction("Rename…", lambda: self._rename_tab(index, tabs))
+        view = tabs.widget(index)
         if isinstance(view, TerminalView):
             if view in self._renamed_tabs:
                 menu.addAction("Use shell title", lambda: self._restore_shell_title(view))
             menu.addAction("Restart shell", view.restart)
-            menu.addAction("Duplicate tab", lambda: self.new_tab(view.profile.key))
+            menu.addAction("Duplicate tab", lambda: self.new_tab(view.profile.key, tabs))
         menu.addSeparator()
-        menu.addAction("Close", lambda: self.close_tab(index))
-        menu.exec(self.tabs.tabBar().mapToGlobal(point))
+        menu.addAction("Split view: left/right (Ctrl+Shift+E)", lambda: self.split_view(Qt.Orientation.Horizontal))
+        menu.addAction("Split view: top/bottom (Ctrl+Shift+O)", lambda: self.split_view(Qt.Orientation.Vertical))
+        menu.addSeparator()
+        menu.addAction("Close", lambda: self.close_tab(index, tabs))
+        menu.exec(bar.mapToGlobal(point))
 
     def _restore_shell_title(self, view: TerminalView) -> None:
         self._renamed_tabs.discard(view)
         title = getattr(view.emulator, "title", "") or view.profile.label
-        index = self.tabs.indexOf(view)
+        tabs = self._view_pane.get(view)
+        if tabs is None:
+            return
+        index = tabs.indexOf(view)
         if index >= 0:
-            self.tabs.setTabText(index, title)
-            if self.tabs.currentIndex() == index:
+            tabs.setTabText(index, title)
+            if tabs.currentIndex() == index:
                 self._update_window_title()
 
     def _on_title_changed(self, view: TerminalView, title: str) -> None:
-        index = self.tabs.indexOf(view)
+        tabs = self._view_pane.get(view)
+        if tabs is None:
+            return
+        index = tabs.indexOf(view)
         if index < 0 or view in self._renamed_tabs:
             return
         text = title.strip() or view.profile.label
-        self.tabs.setTabText(index, text)
-        if self.tabs.currentIndex() == index:
+        tabs.setTabText(index, text)
+        if tabs.currentIndex() == index:
             self._update_window_title()
 
-    def _on_tab_changed(self, index: int) -> None:
+    def _on_tab_changed(self, index: int, tabs: QTabWidget) -> None:
         if self._find_dialog is not None:
             self._find_dialog.close()
             self._find_dialog = None
-        view = self.tabs.widget(index)
+        view = tabs.widget(index)
         if isinstance(view, TerminalView):
             view.setFocus()
+            self._focused_view = view
         self._refresh_close_buttons()
         self._update_window_title()
         self._update_status()
 
     def _update_window_title(self) -> None:
-        view = self.tabs.currentWidget()
+        tabs = self._active_tabs()
+        view = tabs.currentWidget()
         if isinstance(view, TerminalView):
-            title = self.tabs.tabText(self.tabs.currentIndex()) or view.profile.label
+            title = tabs.tabText(tabs.currentIndex()) or view.profile.label
             self.setWindowTitle(f"{title} — {APP_NAME}")
         else:
             self.setWindowTitle(APP_NAME)
 
     def _update_status(self) -> None:
-        count = self.tabs.count()
-        view = self.tabs.currentWidget()
+        count = sum(t.count() for t in self._panes)
+        tabs = self._active_tabs()
+        view = tabs.currentWidget()
         if isinstance(view, TerminalView):
             text = f"{count} session{'s' if count != 1 else ''} · {view.profile.label} · {view.size_text()}"
         else:
             text = f"{count} sessions"
+        if len(self._panes) > 1:
+            text += f" · split ×{len(self._panes)}"
         self.status_label.setText(text)
 
     # -- events ----------------------------------------------------------
     def eventFilter(self, obj, event) -> bool:  # noqa: N802 - Qt naming
-        if obj is self.tabs.tabBar():
+        if obj in self._tab_bars:
             event_type = event.type()
             if event_type == QEvent.Type.MouseMove:
-                index = self.tabs.tabBar().tabAt(event.position().toPoint())
-                if index != self._hover_tab:
+                index = obj.tabAt(event.position().toPoint())
+                if index != self._hover_tab or obj is not self._hover_bar:
+                    self._hover_bar = obj
                     self._hover_tab = index
                     self._refresh_close_buttons()
                 if self._immersive:
                     self._hide_tab_bar_when_left(event)
             elif event_type == QEvent.Type.Leave:
-                if self._hover_tab != -1:
+                if self._hover_bar is obj:
+                    self._hover_bar = None
                     self._hover_tab = -1
                     self._refresh_close_buttons()
                 if self._immersive:
                     self._hide_tab_bar_when_left()
             elif event_type == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.MiddleButton:
-                index = self.tabs.tabBar().tabAt(event.position().toPoint())
+                index = obj.tabAt(event.position().toPoint())
                 if index >= 0:
-                    self.close_tab(index)
+                    self.close_tab(index, obj.parentWidget())
                     return True
             elif event_type == QEvent.Type.MouseButtonDblClick:
-                index = self.tabs.tabBar().tabAt(event.position().toPoint())
+                index = obj.tabAt(event.position().toPoint())
                 if index != -1:
-                    self._rename_tab(index)
+                    self._rename_tab(index, obj.parentWidget())
                     return True
         elif obj in self._hot_views:
-            if event.type() == QEvent.Type.MouseMove and self._immersive:
+            if event.type() == QEvent.Type.FocusIn:
+                self._focused_view = obj
+            elif event.type() == QEvent.Type.MouseMove and self._immersive:
                 self._reveal_tab_bar_at_top_edge(event)
         return super().eventFilter(obj, event)
 
@@ -391,10 +538,11 @@ class MainWindow(QMainWindow):
             self._find_dialog.close()
             self._find_dialog = None
         self.config.save_geometry(bytes(self.saveGeometry()))
-        for index in range(self.tabs.count()):
-            view = self.tabs.widget(index)
-            if isinstance(view, TerminalView):
-                view.shutdown()
+        for tabs in self._panes:
+            for index in range(tabs.count()):
+                view = tabs.widget(index)
+                if isinstance(view, TerminalView):
+                    view.shutdown()
         self.config.sync()
         super().closeEvent(event)
 
@@ -422,10 +570,11 @@ class MainWindow(QMainWindow):
         if dialog.exec() == SettingsDialog.DialogCode.Accepted:
             self.default_shell = self.config.get_str("shell")
             self._apply_chrome()
-            for index in range(self.tabs.count()):
-                view = self.tabs.widget(index)
-                if isinstance(view, TerminalView):
-                    view.apply_settings()
+            for tabs in self._panes:
+                for index in range(tabs.count()):
+                    view = tabs.widget(index)
+                    if isinstance(view, TerminalView):
+                        view.apply_settings()
             self._update_status()
 
     def toggle_fullscreen(self) -> None:
@@ -462,9 +611,10 @@ class MainWindow(QMainWindow):
         self.statusBar().setVisible(True)
 
     def _set_tab_bar_visible(self, visible: bool) -> None:
-        bar = self.tabs.tabBar()
-        if bar.isVisible() != visible:
-            bar.setVisible(visible)
+        for tabs in self._panes:
+            bar = tabs.tabBar()
+            if bar.isVisible() != visible:
+                bar.setVisible(visible)
 
     def _show_immersive_hint(self) -> None:
         self._immersive_hint.adjustSize()
@@ -475,8 +625,8 @@ class MainWindow(QMainWindow):
         self._hint_timer.start()
 
     def _reveal_tab_bar_at_top_edge(self, event) -> None:
-        """While immersive, touching the very top edge reveals the tab bar."""
-        if self.tabs.tabBar().isVisible():
+        """While immersive, touching the very top edge reveals the tab bars."""
+        if all(tabs.tabBar().isVisible() for tabs in self._panes):
             return
         top = self.frameGeometry().top()
         y = int(event.globalPosition().y())
@@ -484,9 +634,9 @@ class MainWindow(QMainWindow):
             self._set_tab_bar_visible(True)
 
     def _hide_tab_bar_when_left(self, event=None) -> None:
-        """Hide the tab bar again once the pointer moves below it."""
-        bar = self.tabs.tabBar()
-        if not bar.isVisible():
+        """Hide the tab bars again once the pointer moves below them."""
+        visible = [tabs for tabs in self._panes if tabs.tabBar().isVisible()]
+        if not visible:
             return
         top = self.frameGeometry().top()
         if event is not None:
@@ -495,7 +645,7 @@ class MainWindow(QMainWindow):
             y = int(event.globalPosition().y())
         else:
             y = QCursor.pos().y()
-        if y > top + bar.height() + 10:
+        if y > top + max(tabs.tabBar().height() for tabs in visible) + 10:
             self._set_tab_bar_visible(False)
 
     def _shell_versions(self) -> list[tuple[str, str]]:
@@ -589,17 +739,20 @@ class MainWindow(QMainWindow):
         layout.addLayout(top)
 
         # ---- 说明 ----
+        sessions = sum(t.count() for t in self._panes)
         desc = QLabel(
             f"<span style='color:{theme['tab_fg']}'>"
             "A native Qt terminal for PowerShell, Bash and any shell.<br><br>"
             f"Python {platform.python_version()} · Qt {QT_VERSION_STR} · PyQt {PYQT_VERSION_STR} · pyte {pyte_version}<br>"
-            f"Kernel {platform.release()} · {self.tabs.count()} session(s)<br><br>"
+            f"Kernel {platform.release()} · {sessions} session(s)<br><br>"
             "Shortcuts: Ctrl+Shift+T new tab, Ctrl+W close, Ctrl+Tab switch, "
             "Ctrl+Shift+C/V copy/paste, Ctrl+= / Ctrl+- / Ctrl+0 zoom, "
+            "Ctrl+Shift+E / Ctrl+Shift+O split view left-right / top-bottom, "
             "F11 immersive fullscreen, Shift+F11 plain fullscreen.<br>"
             "Tips: middle-click a tab to close it, double-click to rename it, "
             "and style the prompt in Settings → Prompt.<br>"
-            "Type <b>DTinfo</b> in any tab to see this info right in the terminal."
+            "Type <b>DTinfo</b> in any tab to see this info right in the terminal — "
+            "with the DeepTerminal icon itself instead of a character logo."
             "</span>"
         )
         desc.setWordWrap(True)

@@ -58,6 +58,15 @@ keeps the old plain fullscreen). The Appearance page also gains a
 **Pure Black** theme: the same dark palette with a true `#000000` background
 instead of the dark grey.
 
+Version 2.7.0 adds **split view** and replaces the DTinfo character box with
+a real picture. Split the window like Konsole: **`Ctrl+Shift+E`** puts a
+second terminal **left/right**, **`Ctrl+Shift+O`** puts one **top/bottom** —
+each pane keeps its own tabs, and closing a pane's last tab removes it.
+**`DTinfo`** no longer prints ASCII art: the shell sends an invisible marker
+and DeepTerminal floats the actual **DeepTerminal icon image** over the
+terminal with the info text below it, on every new tab and whenever you type
+`DTinfo`.
+
 ![DeepTerminal](docs/screenshot.png)
 
 ## Features
@@ -69,6 +78,10 @@ instead of the dark grey.
   16/256/true-colour SGR, bold, italic, underline, reverse, strikethrough.
 - **Tabs**: per-tab shell, hover close buttons, middle-click to close,
   double-click to rename, restart, duplicate, drag to reorder.
+- **Split view**: `Ctrl+Shift+E` splits the focused pane left/right,
+  `Ctrl+Shift+O` splits it top/bottom (Konsole style). Every pane has its own
+  tabs; closing a pane's last tab removes the pane, and the status bar shows
+  the total session count.
 - **Immersive mode** (`F11`): frameless fullscreen with the tab bar and status
   bar hidden; the tab bar slides back in when the mouse touches the top edge.
   `Shift+F11` is plain fullscreen with the chrome kept.
@@ -143,8 +156,9 @@ PowerShell and Bash; the **Custom format** style uses the legacy plain string
 with `{path}` for the current directory. **Shell default** leaves the shell's
 own prompt untouched, and custom shells always keep their own prompt. Beta 1
 settings (`prompt`, `theme`, `startup_cmd`) are preserved, and the old `terinfo`
-command is back as **`DTinfo`**: type it in a Bash or PowerShell tab to print
-the About DeepTerminal info box in the terminal. The dialog itself lives in
+command is back as **`DTinfo`**: type it in a Bash or PowerShell tab and
+DeepTerminal floats the **icon image** over the terminal with the version info
+below it (no more character art). The dialog itself lives in
 **＋ → About DeepTerminal**. For pure fun there is also **`codeout`**: a fake
 system-boot flood of coloured log lines (`codeout 3s super`), configurable via
 `~/.config/AzenDev/DeepTerminal/codeout-conf.txt`.
@@ -156,6 +170,7 @@ system-boot flood of coloured log lines (`codeout 3s super`), configurable via
 | `Ctrl+Shift+T` | New tab |
 | `Ctrl+W` | Close tab |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Ctrl+Shift+E` / `Ctrl+Shift+O` | Split view left/right / top/bottom |
 | `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / paste |
 | `Ctrl+Insert` / `Shift+Insert` | Copy / paste (terminal convention) |
 | `Ctrl+Shift+F` | Find in terminal |
@@ -192,13 +207,14 @@ blinking apply immediately.
 
 ## Known limits
 
-- No sixel or kitty graphics protocol, and no inline images.
+- No sixel or kitty graphics protocol, and no inline images (the DTinfo icon
+  is a floating image banner rendered by the app, not by the terminal grid).
 - No shell integration (OSC 7 current directory) or clickable hyperlinks yet.
 - Mouse reporting supports X10 and SGR (1000/1002/1003/1006), not 1005/1015.
 - Search is single-line and capped at 5000 matches.
 - Selection/search anchors can drift if new output arrives while you interact
   with scrollback; the viewport itself stays anchored.
-- No split panes or session restore.
+- No session restore (tabs and split panes are not remembered across launches).
 - Linux only.
 
 ## Code layout
@@ -214,7 +230,7 @@ deepterminal/
   view.py                  QPainter terminal widget: input, selection, search, IME
   find_dialog.py           non-modal find bar
   settings_dialog.py       sidebar settings dialog with the prompt designer
-  window.py                tabs, shortcuts, menus, status bar
+  window.py                split view, tabs, shortcuts, menus, status bar
 tests/smoke_test.py        headless checks (offscreen Qt, real bash PTY)
 tests/make_screenshot.py   regenerates docs/screenshot.png offscreen
 ```

@@ -18,10 +18,11 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
 )
-from PyQt6.QtWidgets import QApplication, QMenu, QScrollBar, QWidget
+from PyQt6.QtWidgets import QApplication, QLabel, QMenu, QScrollBar, QWidget
 
-from .about import about_text
+from .about import DTINFO_RE, about_text
 from .codeout import (
     CLEAN_AT,
     CLEAN_LINES,
@@ -32,7 +33,7 @@ from .codeout import (
     ensure_config_file,
     read_config,
 )
-from .config import Config, default_font_family, get_theme
+from .config import Config, default_font_family, get_theme, program_dir
 from .emulator import TerminalScreen, make_emulator
 from .ptyproc import PtyProcess
 from .shells import ShellProfile, build_environment
@@ -46,6 +47,7 @@ WHEEL_LINES = 3
 CORNER_RADIUS = 10.0
 AUTO_FONT_SETTLE_MS = 120
 PROMPT_INJECT_DELAY_MS = 50
+DTINFO_SHOW_MS = 4500
 
 _CTRL = Qt.KeyboardModifier.ControlModifier
 _SHIFT = Qt.KeyboardModifier.ShiftModifier
@@ -249,6 +251,19 @@ class TerminalView(QWidget):
         self._codeout_tail = b""
         self._codeout_lines = 0
 
+        # DTinfo: the floating icon banner that replaces the old character
+        # box — a real image of the DeepTerminal icon, shown for a few
+        # seconds above the info text whenever DTinfo runs.
+        self._dtinfo_tail = b""
+        self._dtinfo_label = QLabel(self)
+        self._dtinfo_label.setObjectName("dtinfoIcon")
+        self._dtinfo_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self._dtinfo_label.hide()
+        self._dtinfo_timer = QTimer(self)
+        self._dtinfo_timer.setSingleShot(True)
+        self._dtinfo_timer.setInterval(DTINFO_SHOW_MS)
+        self._dtinfo_timer.timeout.connect(self._hide_dtinfo_icon)
+
         self._apply_font()
         self._apply_theme()
         self._start_shell()
@@ -279,12 +294,11 @@ class TerminalView(QWidget):
             self._pending_notice = ""
             self._message("\r\n" + notice + "\r\n")
         if self._first_shell and self.profile.key == "custom":
-            # Custom shells get the welcome banner drawn client-side (bash and
-            # PowerShell print it themselves right after the auto-clear, so it
-            # always lands above their first prompt). The client-side path
-            # bypasses the tty, so every line ending must carry its own \r.
+            # Custom shells get the About info drawn client-side (bash and
+            # PowerShell print only the invisible DTinfo marker themselves,
+            # so the icon + info always lands above their first prompt).
             self._first_shell = False
-            self._message(about_text().replace("\n", "\r\n") + "\r\n")
+            self._run_dtinfo()
         else:
             self._first_shell = False
         if self.profile.prompt_command:
@@ -335,6 +349,8 @@ class TerminalView(QWidget):
         self._exited = False
         self._codeout_tail = b""
         self._codeout_lines = 0
+        self._dtinfo_tail = b""
+        self._hide_dtinfo_icon()
         self.title_changed.emit(self.profile.label)
         self._start_shell()
         self._sync_scrollbar()
@@ -346,6 +362,8 @@ class TerminalView(QWidget):
         self._repaint_timer.stop()
         self._search_refresh_timer.stop()
         self._resize_timer.stop()
+        self._dtinfo_timer.stop()
+        self._hide_dtinfo_icon()
         startup_timer = getattr(self, "_startup_timer", None)
         if startup_timer is not None:
             startup_timer.stop()
@@ -365,6 +383,7 @@ class TerminalView(QWidget):
     def _on_output(self, data: bytes) -> None:
         self._shell_ready = True
         self._scan_codeout(data)
+        self._scan_dtinfo(data)
         try:
             self.stream.feed(data)
         except Exception:  # pragma: no cover - malformed sequences must not kill the tab
@@ -474,6 +493,64 @@ class TerminalView(QWidget):
 
     def _stop_codeout(self) -> None:
         self._codeout_runner.stop()
+
+    # -- DTinfo (icon image instead of the old character box) ------------
+    def _scan_dtinfo(self, data: bytes) -> None:
+        """Catch the invisible OSC marker the shell-side ``DTinfo`` prints.
+
+        pyte swallows unknown OSC sequences, so the marker never reaches the
+        screen; this turns it into the client-side icon + info display. A
+        small tail is kept in case a PTY write splits the marker in half.
+        """
+        self._dtinfo_tail += data
+        if DTINFO_RE.search(self._dtinfo_tail):
+            self._run_dtinfo()
+        self._dtinfo_tail = self._dtinfo_tail[-32:]
+
+    def _run_dtinfo(self) -> None:
+        """Render DTinfo client-side: the info text plus the icon image."""
+        # Client-side drawing bypasses the tty, so every line ending must
+        # carry its own \r or the cursor column drifts.
+        self._message(about_text().replace("\n", "\r\n") + "\r\n")
+        self._show_dtinfo_icon()
+
+    def _show_dtinfo_icon(self) -> None:
+        """Float the real DeepTerminal icon over the view for a few seconds."""
+        icon_path = program_dir() / "deepterm.png"
+        if not icon_path.exists():
+            return
+        size = int(max(96, min(224, self.width() * 0.24, self.height() * 0.55)))
+        pixmap = QPixmap(str(icon_path)).scaled(
+            size,
+            size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        label = self._dtinfo_label
+        padding = max(8, size // 10)
+        label.setPixmap(pixmap)
+        label.setStyleSheet(
+            "QLabel#dtinfoIcon {"
+            " background: rgba(0, 0, 0, 165);"
+            " border: 1px solid #3a3a3a;"
+            f" border-radius: {size // 5}px;"
+            f" padding: {padding}px;"
+            "}"
+        )
+        label.adjustSize()
+        self._position_dtinfo_icon()
+        label.show()
+        label.raise_()
+        self._dtinfo_timer.start()
+
+    def _position_dtinfo_icon(self) -> None:
+        label = self._dtinfo_label
+        x = max(0, (self.width() - label.width()) // 2)
+        label.move(x, PAD_Y + 4)
+
+    def _hide_dtinfo_icon(self) -> None:
+        self._dtinfo_timer.stop()
+        self._dtinfo_label.hide()
 
     # -- title / scrollbar ----------------------------------------------
     def _sync_title(self) -> None:
@@ -603,6 +680,8 @@ class TerminalView(QWidget):
 
     def resizeEvent(self, event) -> None:  # noqa: N802 - Qt naming
         self._scrollbar.setGeometry(self.width() - SCROLLBAR_WIDTH, 0, SCROLLBAR_WIDTH, self.height())
+        if self._dtinfo_label.isVisible():
+            self._position_dtinfo_icon()
         # 拖拽窗口期间 resize 事件很密集，稍等 120ms 再重排网格 + 自适应字体
         self._resize_timer.start()
         super().resizeEvent(event)
@@ -829,6 +908,8 @@ class TerminalView(QWidget):
             # Ctrl+C also stops the codeout flood (the shell still gets it,
             # so the prompt returns as usual).
             self._stop_codeout()
+        if self._dtinfo_label.isVisible():
+            self._hide_dtinfo_icon()
         if self._scroll_offset > 0:
             self._scroll_offset = 0
             self._sync_scrollbar()

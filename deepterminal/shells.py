@@ -7,7 +7,6 @@ import shlex
 import shutil
 from dataclasses import dataclass
 
-from .about import about_text
 from .codeout import bash_codeout_setup, pwsh_codeout_setup
 from .config import APP_VERSION, Config
 from .promptstyle import bash_prompt_command, pwsh_prompt_function
@@ -34,16 +33,15 @@ class ShellProfile:
         return self.label
 
 
-def _bash_dtinfo_setup(text: str) -> str:
-    """Bash command defining DTinfo() — one single command so the shell
-    prints its prompt only once."""
-    body = text.rstrip("\n")
-    return "DTinfo() { cat <<'DTINFO_EOF'\n" + body + "\nDTINFO_EOF\nprintf '\\n'\n}"
+def _bash_dtinfo_setup() -> str:
+    """Bash command defining DTinfo() — prints only the invisible OSC marker;
+    the terminal view catches it and shows the icon image + info client-side."""
+    return "DTinfo() { printf '\\033]663;dtinfo\\007'; }"
 
 
-def _pwsh_dtinfo_setup(text: str) -> str:
-    """PowerShell function DTinfo printing the About block."""
-    return "function DTinfo { Write-Host -NoNewline @'\n" + text + "'@ }"
+def _pwsh_dtinfo_setup() -> str:
+    """PowerShell function DTinfo printing the invisible OSC marker."""
+    return 'function DTinfo { Write-Host -NoNewline "$([char]27)]663;dtinfo$([char]7)" }'
 
 
 def pwsh_profile(config: Config) -> ShellProfile:
@@ -55,7 +53,7 @@ def pwsh_profile(config: Config) -> ShellProfile:
     prompt_function = pwsh_prompt_function(config)
     parts = [
         prompt_function,
-        _pwsh_dtinfo_setup(about_text()),
+        _pwsh_dtinfo_setup(),
         pwsh_codeout_setup(),
         "$env:PAGER = 'cat'",
         "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
@@ -79,7 +77,7 @@ def bash_profile(config: Config) -> ShellProfile:
         # Run the PS1 setup, define DTinfo and re-enable echo as a single
         # command so bash prints its prompt only once instead of once per line.
         setup = setup.rstrip("\n") + "; "
-    setup += _bash_dtinfo_setup(about_text()) + "; " + bash_codeout_setup() + "; stty echo"
+    setup += _bash_dtinfo_setup() + "; " + bash_codeout_setup() + "; stty echo"
     if config.get_bool("auto_clear"):
         # Clear the screen automatically on open (fall back to raw ANSI if
         # `clear` is not installed), then show the About banner.

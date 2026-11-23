@@ -257,6 +257,14 @@ def test_view_extras(app: QApplication) -> None:
         view._write_input(b"echo after-int\r")
         check("Ctrl+C interrupts the foreground job", wait_until(app, lambda: "after-int" in view.screen_text(), 5), view.screen_text())
 
+        view._write_input(b"DTinfo\r")
+        check("DTinfo floats the icon image", wait_until(app, lambda: view._dtinfo_label.isVisible(), 5))
+        check(
+            "DTinfo prints the info text",
+            wait_until(app, lambda: "DeepTerminal" in view.screen_text() and "Bash" in view.screen_text(), 5),
+            view.screen_text(),
+        )
+
         view._write_input(b"seq 1 200\r")
         check("long output arrives", wait_until(app, lambda: "200" in view.screen_text()), view.screen_text())
         view._scroll_by(5)
@@ -513,6 +521,23 @@ def test_window(app: QApplication) -> None:
             app.processEvents()
         check("close button closes the tab", window.tabs.count() == 1, str(window.tabs.count()))
 
+        window.split_view(Qt.Orientation.Horizontal)
+        app.processEvents()
+        check("split left/right adds a second pane", len(window._panes) == 2, str(len(window._panes)))
+        check("split opens a terminal in the new pane", window._panes[1].count() == 1, str(window._panes[1].count()))
+        check("split reports two sessions", sum(t.count() for t in window._panes) == 2)
+        window.split_view(Qt.Orientation.Vertical)
+        app.processEvents()
+        check("split top/bottom nests a third pane", len(window._panes) == 3, str(len(window._panes)))
+        check("every pane has a terminal", all(t.count() == 1 for t in window._panes), str([t.count() for t in window._panes]))
+        window.close_tab(window._panes[2].currentIndex(), window._panes[2])
+        app.processEvents()
+        check("emptying a pane removes it", len(window._panes) == 2, str(len(window._panes)))
+        window.close_tab(window._panes[1].currentIndex(), window._panes[1])
+        app.processEvents()
+        check("last split pane collapses back to one", len(window._panes) == 1, str(len(window._panes)))
+        check("remaining tab still works", window.tabs.count() == 1, str(window.tabs.count()))
+
         dialog = SettingsDialog(config)
         values = dialog.values()
         check("settings expose the prompt style", values["prompt_style"] == "arrow", str(values["prompt_style"]))
@@ -543,22 +568,29 @@ def test_window(app: QApplication) -> None:
 
 
 def test_about_banner() -> None:
-    from deepterminal.about import about_text
+    from deepterminal.about import DTINFO_RE, about_text
+    from deepterminal.config import APP_VERSION
 
     # Client-side drawing bypasses the tty, so \n must become \r\n or the
-    # cursor column drifts and the box turns into garbage (the 2.6.0 bug).
+    # cursor column drifts.
     text = about_text().replace("\n", "\r\n") + "\r\n"
     screen, stream = make_emulator(80, 24, 100)
     stream.feed(text.encode("utf-8"))
     rows = [screen.text_of_row(y).rstrip() for y in range(screen.lines)]
     nonblank = [row for row in rows if row.strip()]
-    check("banner starts with the top border", nonblank[0].startswith("╭"), nonblank[0])
-    check("banner ends with the bottom border", nonblank[-1].startswith("╰"), nonblank[-1])
-    widths = [len(row) for row in nonblank]
-    check("banner rows are all aligned", len(set(widths)) == 1, str(widths))
-    check("banner shows the app version", "DeepTerminal" in text)
-    joined = "".join(nonblank)
-    check("banner has no drift garbage", "╭" in joined and joined.count("╮") == 1, nonblank[1:3])
+    check("banner starts with the app name", nonblank[0].startswith("DeepTerminal"), nonblank[0])
+    check("banner shows the app version", APP_VERSION in text, text)
+    joined = "\n".join(nonblank)
+    check("banner lists the shells", "PowerShell Core" in joined and "Bash" in joined, joined)
+    check("banner has no character-art box anymore", "╭" not in joined and "╮" not in joined, nonblank[1:3])
+    check(
+        "DTinfo marker is matched",
+        DTINFO_RE.search(b"noise\x1b]663;dtinfo\x07more") is not None,
+    )
+    check(
+        "DTinfo marker survives split writes",
+        DTINFO_RE.search(b"\x1b]663;dti" + b"nfo\x07") is not None,
+    )
 
 
 def main() -> int:

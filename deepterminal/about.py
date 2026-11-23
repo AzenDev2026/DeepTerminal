@@ -1,7 +1,10 @@
 """In-terminal About info.
 
-Rendered as a character box shown at the top of every new tab and by the
-``DTinfo`` command typed inside Bash / PowerShell tabs.
+The shell-side ``DTinfo`` command prints only an invisible OSC marker
+(:data:`DTINFO_MARKER`). The terminal view catches the marker and shows the
+real **DeepTerminal icon image** (``deepterm.png``) as a floating banner,
+with the plain text info block below it — so DTinfo now shows a picture
+instead of the old character-art box.
 """
 
 from __future__ import annotations
@@ -13,8 +16,13 @@ import subprocess
 
 from .config import APP_NAME, APP_VERSION
 
-_WIDTH = 52
-_INNER = _WIDTH - 4
+#: Invisible OSC marker the shell-side ``DTinfo`` function prints. pyte
+#: silently swallows unknown OSC sequences, so nothing of this reaches the
+#: screen; the terminal view catches it and renders the icon image instead.
+DTINFO_MARKER = b"\x1b]663;dtinfo\x07"
+
+#: Matches the marker inside a raw PTY chunk (which may split it in half).
+DTINFO_RE = re.compile(rb"\x1b\]663;dtinfo\x07")
 
 
 def _shell_version(command: str, args: tuple[str, ...], pattern: str) -> str:
@@ -63,32 +71,12 @@ def _versions_line() -> str:
     )
 
 
-def _box(lines: list[str]) -> str:
-    top = "╭" + "─" * (_WIDTH - 2) + "╮"
-    bottom = "╰" + "─" * (_WIDTH - 2) + "╯"
-
-    def row(text: str) -> str:
-        if len(text) > _INNER:
-            text = text[:_INNER]
-        return "│ " + text.ljust(_INNER) + " │"
-
-    # Lines end with \n here: the shell-side DTinfo output goes through the
-    # PTY where the tty converts \n to \r\n. The terminal widget's client-side
-    # banner converts to \r\n itself before feeding the emulator.
-    return "\n".join([top] + [row(line) for line in lines] + [bottom])
-
-
 def about_text() -> str:
-    """Character-boxed About block shown in the terminal."""
+    """Plain-text About block shown under the DTinfo icon image."""
     python_row, pyqt_row = _versions_line()
     lines = [
-        "",
-        "  ██████╗ ████████╗      " + f"{APP_NAME} {APP_VERSION}",
-        "  ██╔══██╗╚══██╔══╝      ──────────────────────",
-        "  ██║  ██║   ██║         A native Qt terminal",
-        "  ██║  ██║   ██║         for PowerShell 7, Bash",
-        "  ██████╔╝   ██║         and any shell",
-        "  ╚═════╝    ╚═╝",
+        f"{APP_NAME} {APP_VERSION} — a native Qt terminal",
+        "for PowerShell 7, Bash and any shell",
         "",
         "  PowerShell Core  " + _pwsh_version(),
         "  Bash             " + _bash_version(),
@@ -97,4 +85,4 @@ def about_text() -> str:
         "",
         "  DTinfo for info · codeout for fun",
     ]
-    return _box(lines) + "\n"
+    return "\n".join(lines) + "\n"
