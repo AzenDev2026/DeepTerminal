@@ -438,13 +438,18 @@ class TerminalView(QWidget):
         """Catch the invisible OSC marker the shell-side ``codeout`` prints.
 
         The marker usually arrives in a single chunk, but a small tail is
-        kept in case a write splits it in the middle.
+        kept in case a write splits it in the middle. Matched bytes are
+        consumed so the same marker is never handled twice.
         """
         self._codeout_tail += data
-        for match in TRIGGER_RE.finditer(self._codeout_tail):
+        matches = list(TRIGGER_RE.finditer(self._codeout_tail))
+        for match in matches:
             args = match.group(1).decode("utf-8", "replace").strip()
             self._run_codeout(args)
-        self._codeout_tail = self._codeout_tail[-64:]
+        if matches:
+            self._codeout_tail = self._codeout_tail[matches[-1].end():]
+        else:
+            self._codeout_tail = self._codeout_tail[-64:]
 
     def _run_codeout(self, args: str) -> None:
         tokens = args.split()
@@ -501,11 +506,17 @@ class TerminalView(QWidget):
         pyte swallows unknown OSC sequences, so the marker never reaches the
         screen; this turns it into the client-side icon + info display. A
         small tail is kept in case a PTY write splits the marker in half.
+        Matched bytes are consumed so the info never prints twice when the
+        next output chunk arrives.
         """
         self._dtinfo_tail += data
-        if DTINFO_RE.search(self._dtinfo_tail):
+        matches = list(DTINFO_RE.finditer(self._dtinfo_tail))
+        for _match in matches:
             self._run_dtinfo()
-        self._dtinfo_tail = self._dtinfo_tail[-32:]
+        if matches:
+            self._dtinfo_tail = self._dtinfo_tail[matches[-1].end():]
+        else:
+            self._dtinfo_tail = self._dtinfo_tail[-32:]
 
     def _run_dtinfo(self) -> None:
         """Render DTinfo client-side: the info text plus the icon image."""

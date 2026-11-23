@@ -644,6 +644,39 @@ def test_environment() -> None:
     check("shell gets truecolour COLORTERM", env.get("COLORTERM") == "truecolor", str(env.get("COLORTERM")))
 
 
+def test_marker_consumption() -> None:
+    """A shell marker must be handled exactly once, even when more output
+    arrives afterwards (the old tail handling re-matched it and printed the
+    DTinfo info twice at startup)."""
+    dtinfo_calls: list[int] = []
+    codeout_calls: list[str] = []
+
+    class DtinfoStub:
+        _dtinfo_tail = b""
+
+        def _run_dtinfo(self) -> None:
+            dtinfo_calls.append(1)
+
+    class CodeoutStub:
+        _codeout_tail = b""
+
+        def _run_codeout(self, args: str) -> None:
+            codeout_calls.append(args)
+
+    TerminalView._scan_dtinfo(DtinfoStub(), b"\x1b]663;dtinfo\x07")
+    TerminalView._scan_dtinfo(DtinfoStub(), b"\x1b[6nnext prompt")
+    check("DTinfo marker is handled once", len(dtinfo_calls) == 1, str(len(dtinfo_calls)))
+
+    TerminalView._scan_codeout(CodeoutStub(), b"\x1b]663;codeout 3s\x07")
+    TerminalView._scan_codeout(CodeoutStub(), b"more output")
+    check("codeout marker is handled once", len(codeout_calls) == 1, str(codeout_calls))
+
+    split = DtinfoStub()
+    TerminalView._scan_dtinfo(split, b"\x1b]663;dti")
+    TerminalView._scan_dtinfo(split, b"nfo\x07")
+    check("split DTinfo marker still counts once", len(dtinfo_calls) == 2, str(len(dtinfo_calls)))
+
+
 def main() -> int:
     app = QApplication(sys.argv[:1])
     test_emulator()
@@ -654,6 +687,7 @@ def main() -> int:
     test_view_extras(app)
     test_codeout()
     test_codeout_e2e(app)
+    test_marker_consumption()
     test_window(app)
     test_themes()
     test_about_banner()
